@@ -201,46 +201,32 @@ async def favicon():
 
 @app.get("/api/guide/content")
 async def get_guide_content():
-    """获取新手搭建说明文档内容"""
-    docx_path = DATA_DIR / "describe" / "新手搭建说明.docx"
+    """获取新手搭建说明文档内容（Markdown 格式）"""
+    md_path = DATA_DIR / "describe" / "新手搭建说明.md"
 
-    if not docx_path.exists():
+    if not md_path.exists():
         return JSONResponse(
             status_code=404,
             content={"detail": "说明文档不存在"}
         )
 
     try:
-        from docx import Document
-        doc = Document(str(docx_path))
+        import markdown
 
-        content_parts = []
-        for para in doc.paragraphs:
-            text = para.text.strip()
-            if text:
-                # 根据段落样式判断是否为标题
-                if para.style.name.startswith('Heading'):
-                    level = para.style.name[-1] if para.style.name[-1].isdigit() else '2'
-                    content_parts.append(f"<h{level}>{text}</h{level}>")
-                else:
-                    content_parts.append(f"<p>{text}</p>")
+        with open(md_path, "r", encoding="utf-8") as f:
+            md_content = f.read()
 
-        # 处理表格
-        for table in doc.tables:
-            table_html = "<table class='doc-table'>"
-            for row in table.rows:
-                table_html += "<tr>"
-                for cell in row.cells:
-                    table_html += f"<td>{cell.text}</td>"
-                table_html += "</tr>"
-            table_html += "</table>"
-            content_parts.append(table_html)
+        # 将 Markdown 转换为 HTML，启用常用扩展
+        html_content = markdown.markdown(
+            md_content,
+            extensions=['tables', 'fenced_code', 'nl2br', 'sane_lists']
+        )
 
-        return {"content": "\n".join(content_parts)}
+        return {"content": html_content}
     except ImportError:
         return JSONResponse(
             status_code=500,
-            content={"detail": "服务器缺少 python-docx 库，请安装: pip install python-docx"}
+            content={"detail": "服务器缺少 markdown 库，请安装: pip install markdown"}
         )
     except Exception as e:
         return JSONResponse(
