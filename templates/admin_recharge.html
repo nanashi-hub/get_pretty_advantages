@@ -1,0 +1,773 @@
+{% extends "base.html" %}
+
+{% block title %}充值管理 - 快手账号管理平台{% endblock %}
+
+{% block page_title %}充值管理{% endblock %}
+
+{% block content %}
+<div class="page-actions">
+    <div class="action-group">
+        <button class="btn btn-primary" onclick="AdminRecharge.showCreateModal()">
+            <span class="icon">➕</span> 创建充值订单
+        </button>
+        <button class="btn btn-secondary" onclick="AdminRecharge.checkAllPayments()">
+            <span class="icon">🔄</span> 检查支付状态
+        </button>
+        <button class="btn btn-secondary" onclick="AdminRecharge.loadOrders()">
+            <span class="icon">🔃</span> 刷新
+        </button>
+    </div>
+</div>
+
+<!-- 统计卡片 -->
+<div class="stats-row">
+    <div class="stat-card">
+        <div class="stat-label">待支付</div>
+        <div class="stat-value" id="pendingCount">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">已支付</div>
+        <div class="stat-value" id="paidCount">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">已完成</div>
+        <div class="stat-value" id="confirmedCount">-</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">今日金额</div>
+        <div class="stat-value" id="todayAmount">-</div>
+    </div>
+</div>
+
+<!-- 筛选栏 -->
+<div class="filter-bar">
+    <div class="filter-group">
+        <label>状态:</label>
+        <select id="statusFilter">
+            <option value="">全部</option>
+            <option value="pending">待支付</option>
+            <option value="paid">已支付</option>
+            <option value="confirmed">已完成</option>
+            <option value="expired">已过期</option>
+            <option value="cancelled">已取消</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>用户ID:</label>
+        <input type="number" id="userIdFilter" placeholder="用户ID" style="width:100px;">
+    </div>
+    <div class="filter-group">
+        <button class="btn btn-secondary" onclick="AdminRecharge.applyFilters()">筛选</button>
+        <button class="btn btn-secondary" onclick="AdminRecharge.resetFilters()">重置</button>
+    </div>
+</div>
+
+<!-- 订单列表 -->
+<div class="data-card">
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th width="50">ID</th>
+                    <th width="140">订单号</th>
+                    <th width="80">用户ID</th>
+                    <th width="100">金额</th>
+                    <th width="100">状态</th>
+                    <th width="140">支付宝交易号</th>
+                    <th width="160">创建时间</th>
+                    <th width="120">操作</th>
+                </tr>
+            </thead>
+            <tbody id="ordersTableBody">
+                <tr><td colspan="8" class="loading-cell">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 转账记录区域 -->
+<div class="section-divider">
+    <h3>转账记录（分账明细）</h3>
+</div>
+
+<div class="filter-bar">
+    <div class="filter-group">
+        <label>状态:</label>
+        <select id="transferStatusFilter">
+            <option value="">全部</option>
+            <option value="pending">待转账</option>
+            <option value="processing">转账中</option>
+            <option value="success">成功</option>
+            <option value="failed">失败</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>订单ID:</label>
+        <input type="number" id="orderIdFilter" placeholder="订单ID" style="width:100px;">
+    </div>
+    <div class="filter-group">
+        <button class="btn btn-secondary" onclick="AdminRecharge.loadTransfers()">筛选</button>
+        <button class="btn btn-secondary" onclick="AdminRecharge.resetTransferFilters()">重置</button>
+    </div>
+</div>
+
+<div class="data-card">
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th width="50">ID</th>
+                    <th width="80">订单ID</th>
+                    <th width="80">用户ID</th>
+                    <th width="80">角色</th>
+                    <th width="150">支付宝账号</th>
+                    <th width="100">金额</th>
+                    <th width="100">状态</th>
+                    <th width="100">转账时间</th>
+                    <th width="150">失败原因</th>
+                </tr>
+            </thead>
+            <tbody id="transfersTableBody">
+                <tr><td colspan="9" class="loading-cell">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.stat-card {
+    background: white;
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.stat-label {
+    font-size: 13px;
+    color: #6b7280;
+    margin-bottom: 4px;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.filter-group input {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    margin-right: 8px;
+}
+
+.section-divider {
+    margin: 32px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.section-divider h3 {
+    margin: 0;
+    font-size: 16px;
+    color: #374151;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.role-platform { background: #e0e7ff; color: #4338ca; }
+.role-agent_l1 { background: #fef3c7; color: #92400e; }
+.role-agent_l2 { background: #fef9c3; color: #a16207; }
+.role-user { background: #dcfce7; color: #166534; }
+</style>
+
+<!-- 创建订单模态框 -->
+<div class="modal-overlay" id="createOrderModal" style="display: none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>创建充值订单</h3>
+            <button class="modal-close" onclick="AdminRecharge.closeCreateModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="createOrderForm">
+                <div class="form-group">
+                    <label>用户ID <span class="required">*</span></label>
+                    <input type="number" id="orderUserId" required
+                           placeholder="请输入用户ID">
+                </div>
+                <div class="form-group">
+                    <label>充值金额 <span class="required">*</span></label>
+                    <input type="number" id="orderAmount" step="0.01" min="0.01" required
+                           placeholder="请输入充值金额">
+                </div>
+                <div class="form-group">
+                    <label>付款备注（选填）</label>
+                    <input type="text" id="orderRemark" maxlength="200"
+                           placeholder="可填写备注信息">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="AdminRecharge.closeCreateModal()">取消</button>
+            <button class="btn btn-primary" onclick="AdminRecharge.createOrder()">创建</button>
+        </div>
+    </div>
+</div>
+
+<!-- 订单详情模态框 -->
+<div class="modal-overlay" id="orderDetailModal" style="display: none;">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>订单详情</h3>
+            <button class="modal-close" onclick="AdminRecharge.closeDetailModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="orderDetailContent">
+            <!-- 动态内容 -->
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="AdminRecharge.closeDetailModal()">关闭</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    let allOrders = [];
+    let allTransfers = [];
+
+    const STATUS_MAP = {
+        'pending': { label: '待支付', class: 'status-pending' },
+        'paid': { label: '已支付', class: 'status-warning' },
+        'confirmed': { label: '已完成', class: 'status-success' },
+        'cancelled': { label: '已取消', class: 'status-disabled' },
+        'expired': { label: '已过期', class: 'status-disabled' }
+    };
+
+    const TRANSFER_STATUS_MAP = {
+        'pending': { label: '待转账', class: 'status-pending' },
+        'processing': { label: '转账中', class: 'status-warning' },
+        'success': { label: '成功', class: 'status-success' },
+        'failed': { label: '失败', class: 'status-error' },
+        'refunded': { label: '已退回', class: 'status-disabled' }
+    };
+
+    const ROLE_MAP = {
+        'platform': '平台',
+        'agent_l1': '一级代理',
+        'agent_l2': '二级代理',
+        'user': '号主'
+    };
+
+    // 页面初始化
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initPage);
+    } else {
+        setTimeout(initPage, 0);
+    }
+
+    async function initPage() {
+        await Promise.all([
+            loadOrders(),
+            loadTransfers(),
+            updateStats()
+        ]);
+    }
+
+    // 加载订单列表
+    async function loadOrders() {
+        const tbody = document.getElementById('ordersTableBody');
+
+        try {
+            const statusFilter = document.getElementById('statusFilter').value;
+            const userIdFilter = document.getElementById('userIdFilter').value;
+
+            let url = '/recharge/admin/orders?';
+            if (statusFilter) url += `status_filter=${statusFilter}&`;
+            if (userIdFilter) url += `user_id=${userIdFilter}&`;
+
+            const orders = await apiRequest(url);
+            allOrders = orders;
+            renderOrders(orders);
+            updateStats();
+        } catch (error) {
+            tbody.innerHTML = `<tr><td colspan="8" class="error-cell">加载失败: ${error.message}</td></tr>`;
+        }
+    }
+
+    // 渲染订单列表
+    function renderOrders(orders) {
+        const tbody = document.getElementById('ordersTableBody');
+
+        if (!orders || orders.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">暂无订单</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = orders.map(order => {
+            const statusInfo = STATUS_MAP[order.status] || { label: order.status, class: '' };
+            const canDistribute = order.status === 'paid';
+            const canManualConfirm = order.status === 'pending';
+
+            return `
+                <tr>
+                    <td>${order.id}</td>
+                    <td><code style="font-size:12px;">${order.order_no}</code></td>
+                    <td>${order.user_id}</td>
+                    <td style="font-weight:600;color:#10b981;">¥${parseFloat(order.amount).toFixed(2)}</td>
+                    <td><span class="status-badge ${statusInfo.class}">${statusInfo.label}</span></td>
+                    <td><code style="font-size:11px;">${order.alipay_trade_no || '-'}</code></td>
+                    <td>${formatDateTime(order.created_at)}</td>
+                    <td>
+                        <div class="btn-group-inline">
+                            <button class="btn-action" onclick="AdminRecharge.viewOrderDetail(${order.id}, '${order.order_no}')">详情</button>
+                            ${canManualConfirm ? `<button class="btn-action btn-action-primary" onclick="AdminRecharge.manualConfirmPayment('${order.order_no}')">确认支付</button>` : ''}
+                            ${canDistribute ? `<button class="btn-action" onclick="AdminRecharge.distributeOrder('${order.order_no}')">分账</button>` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // 加载转账记录
+    async function loadTransfers() {
+        const tbody = document.getElementById('transfersTableBody');
+
+        try {
+            const statusFilter = document.getElementById('transferStatusFilter').value;
+            const orderIdFilter = document.getElementById('orderIdFilter').value;
+
+            let url = '/recharge/admin/transfers?';
+            if (statusFilter) url += `status_filter=${statusFilter}&`;
+            if (orderIdFilter) url += `order_id=${orderIdFilter}&`;
+
+            const transfers = await apiRequest(url);
+            allTransfers = transfers;
+            renderTransfers(transfers);
+        } catch (error) {
+            tbody.innerHTML = `<tr><td colspan="9" class="error-cell">加载失败: ${error.message}</td></tr>`;
+        }
+    }
+
+    // 渲染转账记录
+    function renderTransfers(transfers) {
+        const tbody = document.getElementById('transfersTableBody');
+
+        if (!transfers || transfers.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">暂无转账记录</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = transfers.map(t => {
+            const statusInfo = TRANSFER_STATUS_MAP[t.status] || { label: t.status, class: '' };
+            const roleClass = `role-${t.role}`;
+
+            return `
+                <tr>
+                    <td>${t.id}</td>
+                    <td>${t.recharge_order_id}</td>
+                    <td>${t.user_id}</td>
+                    <td><span class="role-badge ${roleClass}">${ROLE_MAP[t.role] || t.role}</span></td>
+                    <td><code style="font-size:11px;">${t.alipay_account || '-'}</code></td>
+                    <td style="font-weight:600;color:#10b981;">¥${parseFloat(t.amount).toFixed(2)}</td>
+                    <td><span class="status-badge ${statusInfo.class}">${statusInfo.label}</span></td>
+                    <td>${formatDateTime(t.transferred_at)}</td>
+                    <td style="font-size:12px;color:#ef4444;">${t.fail_reason || '-'}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // 更新统计
+    async function updateStats() {
+        const pending = allOrders.filter(o => o.status === 'pending').length;
+        const paid = allOrders.filter(o => o.status === 'paid').length;
+        const confirmed = allOrders.filter(o => o.status === 'confirmed').length;
+
+        // 计算今日金额
+        const today = new Date().toDateString();
+        const todayAmount = allOrders
+            .filter(o => {
+                const orderDate = new Date(o.created_at).toDateString();
+                return orderDate === today && (o.status === 'paid' || o.status === 'confirmed');
+            })
+            .reduce((sum, o) => sum + parseFloat(o.amount), 0);
+
+        document.getElementById('pendingCount').textContent = pending;
+        document.getElementById('paidCount').textContent = paid;
+        document.getElementById('confirmedCount').textContent = confirmed;
+        document.getElementById('todayAmount').textContent = `¥${todayAmount.toFixed(2)}`;
+    }
+
+    // 应用筛选
+    function applyFilters() {
+        loadOrders();
+    }
+
+    // 重置筛选
+    function resetFilters() {
+        document.getElementById('statusFilter').value = '';
+        document.getElementById('userIdFilter').value = '';
+        loadOrders();
+    }
+
+    // 重置转账筛选
+    function resetTransferFilters() {
+        document.getElementById('transferStatusFilter').value = '';
+        document.getElementById('orderIdFilter').value = '';
+        loadTransfers();
+    }
+
+    // 检查所有支付
+    async function checkAllPayments() {
+        try {
+            showToast('正在检查支付状态...', 'info');
+            const result = await apiRequest('/recharge/admin/check-payments', {
+                method: 'POST'
+            });
+
+            showToast(`检查完成: 检查 ${result.checked_orders} 个订单，确认 ${result.confirmed_orders} 个`, 'success');
+            await loadOrders();
+        } catch (error) {
+            showToast('检查失败: ' + error.message, 'error');
+        }
+    }
+
+    // 手动确认支付（用于个人收款码转账场景）
+    async function manualConfirmPayment(orderNo) {
+        // 提示输入支付宝交易号
+        const alipayTradeNo = prompt(`请输入支付宝交易号（从支付宝账单中复制）\n\n订单号: ${orderNo}\n\n提示：\n1. 打开支付宝App\n2. 进入账单详情\n3. 复制交易号并粘贴到此处`);
+
+        if (!alipayTradeNo || !alipayTradeNo.trim()) {
+            return; // 用户取消或未输入
+        }
+
+        if (!confirm(`确认要标记此订单为已支付吗？\n\n订单号: ${orderNo}\n支付宝交易号: ${alipayTradeNo.trim()}\n\n确认后将自动执行分账操作`)) {
+            return;
+        }
+
+        try {
+            showToast('正在确认支付...', 'info');
+            const result = await apiRequest(`/recharge/admin/orders/${orderNo}/manual-confirm`, {
+                method: 'POST',
+                body: JSON.stringify({ alipay_trade_no: alipayTradeNo.trim() })
+            });
+
+            if (result.success) {
+                showToast(`支付确认成功！已分账 ${result.transfers_count} 条记录`, 'success');
+                await loadOrders();
+                await loadTransfers();
+            } else {
+                showToast('支付已确认，但分账失败: ' + (result.error || result.message), 'warning');
+                await loadOrders();
+            }
+        } catch (error) {
+            showToast('确认失败: ' + error.message, 'error');
+        }
+    }
+
+    // 手动分账
+    async function distributeOrder(orderNo) {
+        if (!confirm(`确定要执行分账操作吗？\n订单号: ${orderNo}`)) return;
+
+        try {
+            showToast('正在执行分账...', 'info');
+            const result = await apiRequest(`/recharge/admin/orders/${orderNo}/distribute`, {
+                method: 'POST'
+            });
+
+            showToast(`分账完成，共 ${result.transfers_count} 条转账记录`, 'success');
+            await loadOrders();
+            await loadTransfers();
+        } catch (error) {
+            showToast('分账失败: ' + error.message, 'error');
+        }
+    }
+
+    // 显示创建订单模态框
+    function showCreateModal() {
+        document.getElementById('orderUserId').value = '';
+        document.getElementById('orderAmount').value = '';
+        document.getElementById('orderRemark').value = '';
+        document.getElementById('createOrderModal').style.display = 'flex';
+    }
+
+    // 关闭创建订单模态框
+    function closeCreateModal() {
+        document.getElementById('createOrderModal').style.display = 'none';
+    }
+
+    // 创建订单
+    async function createOrder() {
+        const userId = parseInt(document.getElementById('orderUserId').value);
+        const amount = parseFloat(document.getElementById('orderAmount').value);
+        const remarkIn = document.getElementById('orderRemark').value || null;
+
+        if (!userId || !amount || amount <= 0) {
+            showToast('请填写完整的订单信息', 'error');
+            return;
+        }
+
+        try {
+            showToast('正在创建订单...', 'info');
+
+            // 需要临时切换为该用户来创建订单（这里简化处理，直接调用接口）
+            // 注意：当前实现需要用户本人创建，所以这里仅作为演示
+            // 实际使用时可以让管理员代为创建，或者直接在数据库中插入
+
+            showToast('此功能需要用户自己在充值中心创建', 'warning');
+            closeCreateModal();
+        } catch (error) {
+            showToast('创建失败: ' + error.message, 'error');
+        }
+    }
+
+    // 查看订单详情
+    async function viewOrderDetail(orderId, orderNo) {
+        try {
+            const data = await apiRequest(`/recharge/admin/orders?user_id=${0}`);
+            // 由于管理员接口限制，这里获取所有订单后筛选
+            const order = allOrders.find(o => o.order_no === orderNo);
+
+            if (!order) {
+                showToast('订单不存在', 'error');
+                return;
+            }
+
+            // 获取该订单的转账记录
+            const transfers = allTransfers.filter(t => t.recharge_order_id === orderId);
+
+            showOrderDetailModal(order, transfers);
+        } catch (error) {
+            showToast('获取详情失败: ' + error.message, 'error');
+        }
+    }
+
+    // 显示订单详情模态框
+    function showOrderDetailModal(order, transfers) {
+        const content = document.getElementById('orderDetailContent');
+        const statusInfo = STATUS_MAP[order.status] || { label: order.status, class: '' };
+
+        let html = `
+            <div class="modal-detail-row">
+                <span class="modal-detail-label">订单ID</span>
+                <span class="modal-detail-value">${order.id}</span>
+            </div>
+            <div class="modal-detail-row">
+                <span class="modal-detail-label">订单号</span>
+                <span class="modal-detail-value"><code>${order.order_no}</code></span>
+            </div>
+            <div class="modal-detail-row">
+                <span class="modal-detail-label">用户ID</span>
+                <span class="modal-detail-value">${order.user_id}</span>
+            </div>
+            <div class="modal-detail-row">
+                <span class="modal-detail-label">充值金额</span>
+                <span class="modal-detail-value" style="color:#10b981;font-size:18px;">¥${parseFloat(order.amount).toFixed(2)}</span>
+            </div>
+            <div class="modal-detail-row">
+                <span class="modal-detail-label">订单状态</span>
+                <span class="modal-detail-value"><span class="status-badge ${statusInfo.class}">${statusInfo.label}</span></span>
+            </div>
+        `;
+
+        if (order.alipay_trade_no) {
+            html += `
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">支付宝交易号</span>
+                    <span class="modal-detail-value"><code>${order.alipay_trade_no}</code></span>
+                </div>
+            `;
+        }
+
+        html += `
+            <div class="modal-detail-row">
+                <span class="modal-detail-label">创建时间</span>
+                <span class="modal-detail-value">${formatDateTime(order.created_at)}</span>
+            </div>
+        `;
+
+        if (order.paid_at) {
+            html += `
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">支付时间</span>
+                    <span class="modal-detail-value">${formatDateTime(order.paid_at)}</span>
+                </div>
+            `;
+        }
+
+        if (order.confirmed_at) {
+            html += `
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">确认时间</span>
+                    <span class="modal-detail-value">${formatDateTime(order.confirmed_at)}</span>
+                </div>
+            `;
+        }
+
+        if (transfers.length > 0) {
+            html += `<h4 style="margin:16px 0 8px;">分账明细</h4>`;
+            html += transfers.map(t => {
+                const statusInfo = TRANSFER_STATUS_MAP[t.status] || { label: t.status, class: '' };
+
+                return `
+                    <div class="transfer-item">
+                        <div class="transfer-item-header">
+                            <span class="transfer-role">${ROLE_MAP[t.role] || t.role}</span>
+                            <span class="transfer-status ${statusInfo.class}">${statusInfo.label}</span>
+                        </div>
+                        <div class="transfer-account">${t.alipay_account || '未设置账号'}</div>
+                        <div class="transfer-amount">¥${parseFloat(t.amount).toFixed(2)}</div>
+                        ${t.fail_reason ? `<div style="color:#ef4444;font-size:12px;">失败原因: ${t.fail_reason}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        content.innerHTML = html;
+        document.getElementById('orderDetailModal').style.display = 'flex';
+    }
+
+    // 关闭详情模态框
+    function closeDetailModal() {
+        document.getElementById('orderDetailModal').style.display = 'none';
+    }
+
+    // 格式化日期时间
+    function formatDateTime(dateStr) {
+        if (!dateStr) return '-';
+        try {
+            const date = new Date(dateStr);
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        } catch {
+            return '-';
+        }
+    }
+
+    // 导出全局API
+    window.AdminRecharge = {
+        loadOrders,
+        loadTransfers,
+        applyFilters,
+        resetFilters,
+        resetTransferFilters,
+        checkAllPayments,
+        manualConfirmPayment,
+        distributeOrder,
+        showCreateModal,
+        closeCreateModal,
+        createOrder,
+        viewOrderDetail,
+        closeDetailModal
+    };
+})();
+</script>
+
+<style>
+.modal-detail-row {
+    display: flex;
+    padding: 8px 0;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.modal-detail-row:last-child {
+    border-bottom: none;
+}
+
+.modal-detail-label {
+    width: 100px;
+    color: #6b7280;
+}
+
+.modal-detail-value {
+    flex: 1;
+    font-weight: 500;
+}
+
+.transfer-item {
+    padding: 12px;
+    background: #f9fafb;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.transfer-item-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.transfer-role {
+    font-weight: 500;
+}
+
+.transfer-status {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.transfer-status.status-pending {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.transfer-status.status-warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.transfer-status.status-success {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.transfer-status.status-error {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+.transfer-status.status-disabled {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+.transfer-account {
+    font-size: 13px;
+    color: #6b7280;
+}
+
+.transfer-amount {
+    font-weight: 600;
+    color: #10b981;
+}
+
+/* 确认支付按钮样式 */
+.btn-action-primary {
+    background: #10b981;
+    color: white;
+}
+
+.btn-action-primary:hover {
+    background: #059669;
+}
+</style>
+{% endblock %}

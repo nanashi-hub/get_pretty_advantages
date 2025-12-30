@@ -242,11 +242,26 @@ class UserScriptEnvResponse(BaseModel):
     ip_info: Optional[IPInfo] = None
     status: str
     remark: Optional[str] = None
+    disabled_until: Optional[datetime] = None
+    disable_days: Optional[int] = None
+    disabled_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class EnvDisableRequest(BaseModel):
+    """禁用环境变量请求"""
+    days: int = Field(..., ge=1, le=30, description="禁用天数（1-30天），支持3/5/7天")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "days": 3
+            }
+        }
 
 
 # ==================== 快手账号相关 ====================

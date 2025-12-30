@@ -53,11 +53,23 @@ class QingLongClient:
         url = f"{self.base_url}{endpoint}"
         kwargs.setdefault("headers", self._headers())
         kwargs.setdefault("timeout", 15)
-        
+
         r = requests.request(method, url, **kwargs)
-        r.raise_for_status()
-        
-        data = r.json()
+
+        # 尝试解析响应
+        try:
+            data = r.json()
+        except Exception:
+            # 如果不是 JSON 响应，抛出详细错误
+            error_msg = f"青龙请求失败: {method} {url} -> HTTP {r.status_code}\n响应内容: {r.text[:500]}"
+            raise RuntimeError(error_msg)
+
+        # 检查 HTTP 状态码
+        if r.status_code >= 400:
+            error_msg = f"青龙请求失败: {method} {url} -> HTTP {r.status_code}\n响应: {data}"
+            raise RuntimeError(error_msg)
+
+        # 检查业务状态码
         if data.get("code") != 200:
             raise RuntimeError(f"青龙 API 错误: {data.get('message', data)}")
         return data

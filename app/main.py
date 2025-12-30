@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.database import init_db
+from app.logging_config import setup_logging_from_env, get_logger
 from app.routes import auth, users, admin, account
 from app.routes import (
     ql_instances,
@@ -17,6 +18,7 @@ from app.routes import (
     referrals,
     stats,
     config_envs,
+    recharge,
 )
 import traceback
 
@@ -32,11 +34,31 @@ DATA_DIR = BASE_DIR / "data"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    # 初始化日志配置
+    setup_logging_from_env()
+    logger = get_logger(__name__)
+    logger.info("=" * 50)
+    logger.info("应用启动中...")
+    logger.info("=" * 50)
+
     # 启动时执行
     init_db()
+    logger.info("数据库初始化完成")
     print("数据库初始化完成")
+
+    # 启动定时调度器（用于检查支付状态）
+    from app.services.scheduler import start_scheduler
+    start_scheduler()
+    logger.info("定时调度器已启动")
+    print("定时调度器已启动")
+
     yield
-    # 关闭时执行（如果需要）
+
+    # 关闭时执行
+    from app.services.scheduler import stop_scheduler
+    stop_scheduler()
+    logger.info("定时调度器已停止")
+    print("定时调度器已停止")
 
 
 # 创建FastAPI应用
@@ -85,7 +107,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
     """处理所有未捕获的异常"""
+    logger = get_logger(__name__)
     # 记录错误详情
+    logger.error(f"未处理的异常: {exc}", exc_info=True)
     print(f"未处理的异常: {exc}")
     traceback.print_exc()
     
@@ -118,6 +142,11 @@ app.include_router(wallet.router)
 app.include_router(referrals.router)
 app.include_router(stats.router)
 app.include_router(config_envs.router)
+
+# 充值分账模块路由
+from app.routes import alipay_config
+app.include_router(recharge.router)
+app.include_router(alipay_config.router)
 
 
 # ==================== 页面路由 ====================
@@ -200,7 +229,7 @@ async def favicon():
 # ==================== 文档和下载 API ====================
 
 @app.get("/api/guide/content")
-async def get_guide_content():
+async def get_guide_content(request: Request):
     """获取新手搭建说明文档内容（Markdown 格式）"""
     md_path = DATA_DIR / "describe" / "新手搭建说明.md"
 
@@ -212,9 +241,27 @@ async def get_guide_content():
 
     try:
         import markdown
+        import re
 
         with open(md_path, "r", encoding="utf-8") as f:
             md_content = f.read()
+
+        # 获取服务器基础URL（用于图片路径）
+        scheme = request.url.scheme
+        server_host = request.headers.get("host", "localhost:1212")
+        base_url = f"{scheme}://{server_host}"
+
+        # 将 Markdown 中的相对图片路径替换为完整URL
+        # 匹配 /data/ 开头的图片路径
+        def replace_image_path(match):
+            img_path = match.group(1)
+            # 如果是 /data/ 开头的路径，添加完整URL
+            if img_path.startswith("/data/"):
+                return f"]({base_url}{img_path})"
+            return f"]({img_path})"
+
+        # 替换 markdown 图片语法 ](/data/xxx)
+        md_content = re.sub(r"\]\((/data/[^\)]+)\)", replace_image_path, md_content)
 
         # 将 Markdown 转换为 HTML，启用常用扩展
         html_content = markdown.markdown(
@@ -222,7 +269,108 @@ async def get_guide_content():
             extensions=['tables', 'fenced_code', 'nl2br', 'sane_lists']
         )
 
-        return {"content": html_content}
+        # 添加图片自适应样式和点击全屏功能
+        styled_content = f"""
+        <style>
+            .markdown-body img {{
+                max-width: 100%;
+                height: auto;
+                display: block;
+                margin: 10px 0;
+                border-radius: 4px;
+                cursor: pointer;
+                transition: transform 0.2s;
+            }}
+            .markdown-body img:hover {{
+                opacity: 0.85;
+            }}
+            .markdown-body table {{
+                border-collapse: collapse;
+                width: 100%;
+                margin: 10px 0;
+            }}
+            .markdown-body table th,
+            .markdown-body table td {{
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+            }}
+            .markdown-body table th {{
+                background-color: #f2f2f2;
+            }}
+            /* 全屏图片遮罩层 */
+            .image-overlay {{
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.9);
+                z-index: 9999;
+                justify-content: center;
+                align-items: center;
+                cursor: zoom-out;
+            }}
+            .image-overlay.active {{
+                display: flex;
+            }}
+            .image-overlay img {{
+                max-width: 95%;
+                max-height: 95%;
+                object-fit: contain;
+                cursor: zoom-out;
+            }}
+            .image-overlay .close-hint {{
+                position: absolute;
+                top: 20px;
+                color: white;
+                font-size: 14px;
+                background: rgba(0,0,0,0.5);
+                padding: 8px 16px;
+                border-radius: 4px;
+            }}
+        </style>
+        <div class="markdown-body">{html_content}</div>
+        <div class="image-overlay" id="imageOverlay">
+            <span class="close-hint">点击图片或按 ESC 关闭</span>
+            <img id="overlayImage" src="" alt="全屏图片">
+        </div>
+        <script>
+        (function() {{
+            const overlay = document.getElementById('imageOverlay');
+            const overlayImg = document.getElementById('overlayImage');
+
+            // 为所有图片添加点击事件
+            document.querySelectorAll('.markdown-body img').forEach(img => {{
+                img.addEventListener('click', function(e) {{
+                    e.preventDefault();
+                    overlayImg.src = this.src;
+                    overlay.classList.add('active');
+                    document.body.style.overflow = 'hidden';
+                }});
+            }});
+
+            // 点击遮罩层关闭
+            overlay.addEventListener('click', function() {{
+                closeOverlay();
+            }});
+
+            // 按 ESC 关闭
+            document.addEventListener('keydown', function(e) {{
+                if (e.key === 'Escape') {{
+                    closeOverlay();
+                }}
+            }});
+
+            function closeOverlay() {{
+                overlay.classList.remove('active');
+                document.body.style.overflow = '';
+            }}
+        }})();
+        </script>
+        """
+        return {"content": styled_content, "base_url": base_url}
     except ImportError:
         return JSONResponse(
             status_code=500,
@@ -253,6 +401,24 @@ async def admin_ql_instances_page(request: Request):
 async def admin_referrals_page(request: Request):
     """推广关系管理页面（管理员）"""
     return templates.TemplateResponse("admin_referrals.html", {"request": request, "active_page": "referrals"})
+
+
+@app.get("/recharge", response_class=HTMLResponse)
+async def recharge_page(request: Request):
+    """充值中心页面"""
+    return templates.TemplateResponse("recharge.html", {"request": request, "active_page": "recharge"})
+
+
+@app.get("/admin/recharge", response_class=HTMLResponse)
+async def admin_recharge_page(request: Request):
+    """充值管理页面（管理员）"""
+    return templates.TemplateResponse("admin_recharge.html", {"request": request, "active_page": "recharge"})
+
+
+@app.get("/admin/alipay-config", response_class=HTMLResponse)
+async def admin_alipay_config_page(request: Request):
+    """支付宝配置管理页面（管理员）"""
+    return templates.TemplateResponse("admin_alipay_config.html", {"request": request, "active_page": "alipay_config"})
 
 
 if __name__ == "__main__":

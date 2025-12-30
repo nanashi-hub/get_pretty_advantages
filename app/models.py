@@ -58,6 +58,26 @@ class TransactionType(str, enum.Enum):
     INVITE_REWARD = "invite_reward"          # 邀请奖励
     WITHDRAW = "withdraw"                    # 提现
     ADJUST = "adjust"                        # 调整
+    RECHARGE = "recharge"                    # 充值
+    SETTLEMENT_DISTRIBUTE = "settlement_distribute"  # 结算分发（分账）
+
+
+class RechargeOrderStatus(str, enum.Enum):
+    """充值订单状态枚举"""
+    PENDING = "pending"      # 待支付
+    PAID = "paid"           # 已支付
+    CONFIRMED = "confirmed"  # 已确认（已分账）
+    CANCELLED = "cancelled"  # 已取消
+    EXPIRED = "expired"      # 已过期
+
+
+class TransferStatus(str, enum.Enum):
+    """转账状态枚举"""
+    PENDING = "pending"      # 待转账
+    PROCESSING = "processing"  # 转账中
+    SUCCESS = "success"      # 成功
+    FAILED = "failed"        # 失败
+    REFUNDED = "refunded"    # 已退回
 
 
 # ==================== 用户与登录模块 ====================
@@ -72,6 +92,7 @@ class User(Base):
     nickname = Column(String(50), nullable=True, comment="昵称/备注名")
     phone = Column(String(20), nullable=True, comment="手机号")
     wechat_id = Column(String(50), nullable=True, comment="微信ID（用于联系/结算）")
+    alipay_account = Column(String(100), nullable=True, comment="支付宝账号（用于分账收款）")
     role = Column(
         Enum(UserRole, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
@@ -185,6 +206,10 @@ class UserScriptEnv(Base):
         comment="此变量有效性"
     )
     remark = Column(String(255), nullable=True, comment="备注")
+    # 禁用恢复相关字段
+    disabled_until = Column(DateTime(timezone=True), nullable=True, comment="禁用至何时，到期自动恢复")
+    disable_days = Column(Integer, nullable=True, comment="禁用天数（3/5/7）")
+    disabled_at = Column(DateTime(timezone=True), nullable=True, comment="禁用开始时间")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -466,3 +491,106 @@ class OperationLog(Base):
 
     def __repr__(self):
         return f"<OperationLog(id={self.id}, user_id={self.user_id}, action='{self.action}')>"
+
+
+# ==================== 充值与分账模块 ====================
+
+class RechargeOrder(Base):
+    """充值订单表"""
+    __tablename__ = "recharge_orders"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    order_no = Column(String(50), unique=True, nullable=False, index=True, comment="平台订单号")
+    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False, comment="充值用户ID")
+    amount = Column(DECIMAL(10, 2), nullable=False, comment="充值金额")
+    remark_in = Column(String(200), nullable=True, comment="付款备注（用户填写订单号）")
+
+    # 支付宝相关
+    alipay_trade_no = Column(String(100), unique=True, nullable=True, comment="支付宝交易号")
+    alipay_log_id = Column(String(100), nullable=True, comment="支付宝日志ID")
+
+    status = Column(
+        Enum(RechargeOrderStatus, values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+        default=RechargeOrderStatus.PENDING
+    )
+
+    # 时间字段
+    paid_at = Column(DateTime(timezone=True), nullable=True, comment="支付时间")
+    confirmed_at = Column(DateTime(timezone=True), nullable=True, comment="确认时间（分账完成）")
+    expired_at = Column(DateTime(timezone=True), nullable=True, comment="过期时间")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # 关系
+    user = relationship("User")
+    transfers = relationship("TransferRecord", back_populates="recharge_order")
+
+    def __repr__(self):
+        return f"<RechargeOrder(id={self.id}, order_no='{self.order_no}', status='{self.status}')>"
+
+
+class TransferRecord(Base):
+    """转账记录表（分账明细）"""
+    __tablename__ = "transfer_records"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    recharge_order_id = Column(BigInteger, ForeignKey("recharge_orders.id"), nullable=False, comment="关联充值订单")
+    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False, comment="收款用户ID")
+
+    amount = Column(DECIMAL(10, 2), nullable=False, comment="转账金额")
+    role = Column(String(20), nullable=False, comment="角色: user/agent_l1/agent_l2/platform")
+    alipay_account = Column(String(100), nullable=False, comment="收款支付宝账号")
+
+    # 支付宝转账相关
+    alipay_order_id = Column(String(100), unique=True, nullable=True, comment="支付宝转账单号")
+    alipay_status = Column(String(50), nullable=True, comment="支付宝返回的状态")
+
+    status = Column(
+        Enum(TransferStatus, values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+        default=TransferStatus.PENDING
+    )
+
+    fail_reason = Column(String(255), nullable=True, comment="失败原因")
+    transferred_at = Column(DateTime(timezone=True), nullable=True, comment="转账完成时间")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # 关系
+    recharge_order = relationship("RechargeOrder", back_populates="transfers")
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<TransferRecord(id={self.id}, user_id={self.user_id}, amount={self.amount})>"
+
+
+class AlipayConfig(Base):
+    """支付宝配置表"""
+    __tablename__ = "alipay_config"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(50), nullable=False, comment="配置名称")
+    app_id = Column(String(50), nullable=False, unique=True, comment="支付宝应用ID")
+    private_key = Column(Text, nullable=False, comment="应用私钥")
+    alipay_public_key = Column(Text, nullable=False, comment="支付宝公钥")
+    sign_type = Column(String(10), nullable=False, default="RSA2", comment="签名方式 RSA/RSA2")
+    gateway = Column(String(100), nullable=False, default="https://openapi.alipay.com/gateway.do", comment="网关地址")
+    qrcode_url = Column(String(255), nullable=True, comment="收款码图片URL")
+    alipay_account = Column(String(100), nullable=True, comment="平台支付宝账号")
+
+    # 分账配置
+    platform_fee_rate = Column(DECIMAL(5, 4), nullable=False, default=0.1000, comment="平台抽成比例（0.1=10%）")
+    agent_l1_rate = Column(DECIMAL(5, 4), nullable=False, default=0.5400, comment="一级代理分成比例")
+    agent_l2_rate = Column(DECIMAL(5, 4), nullable=False, default=0.2700, comment="二级代理分成比例")
+    user_rate = Column(DECIMAL(5, 4), nullable=False, default=0.0900, comment="号主分成比例")
+
+    status = Column(Integer, nullable=False, default=1, comment="1=启用, 0=禁用")
+    remark = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<AlipayConfig(id={self.id}, name='{self.name}', app_id='{self.app_id}')>"

@@ -715,12 +715,59 @@ body:not(.has-sidebar) {
     font-weight: 600;
 }
 
+/* 模态框头部按钮组 */
+.modal-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.modal-fullscreen-btn {
+    background: transparent;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.modal-fullscreen-btn:hover {
+    background: var(--hover-bg);
+    color: var(--text-color);
+}
+
 .modal-close {
     background: transparent;
     border: none;
     font-size: 24px;
     cursor: pointer;
     color: var(--text-muted);
+}
+
+/* 模态框全屏模式 */
+.modal.modal-fullscreen {
+    max-width: 95vw;
+    max-height: 95vh;
+    width: 95vw;
+    height: 95vh;
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal.modal-fullscreen .modal-header {
+    flex-shrink: 0;
+}
+
+.modal.modal-fullscreen .modal-body {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.modal.modal-fullscreen .modal-footer {
+    flex-shrink: 0;
 }
 
 .modal-body {

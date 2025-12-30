@@ -3,9 +3,10 @@
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List
 from app.database import get_db
-from app.models import User, UserRole
+from app.models import User, UserRole, UserScriptConfig, UserScriptEnv
 from app.schemas import UserRegister, UserResponse, UserUpdate
 from app.auth import hash_password, get_current_user
 from datetime import timedelta
@@ -80,20 +81,43 @@ async def create_admin_account(
     }
 
 
-@router.get("/users", response_model=List[UserResponse])
+@router.get("/users")
 async def list_all_users(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """获取所有用户列表（仅管理员）"""
+    """获取所有用户列表（仅管理员），包含每个用户的ksck数量"""
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="仅管理员可以访问此接口"
         )
-    
+
     users = db.query(User).all()
-    return [UserResponse.model_validate(user) for user in users]
+    result = []
+
+    for user in users:
+        user_data = UserResponse.model_validate(user).model_dump()
+
+        # 获取用户的ksck列表
+        configs = db.query(UserScriptConfig).filter(UserScriptConfig.user_id == user.id).all()
+        ksck_list = []
+        for config in configs:
+            envs = db.query(UserScriptEnv).filter(UserScriptEnv.config_id == config.id).all()
+            for env in envs:
+                # 将status转换为字符串值，处理Enum对象
+                status_str = env.status.value if hasattr(env.status, 'value') else str(env.status)
+                ksck_list.append({
+                    "id": env.id,
+                    "name": env.env_name,
+                    "status": status_str
+                })
+
+        user_data["ksck_count"] = len(ksck_list)
+        user_data["ksck_list"] = ksck_list
+        result.append(user_data)
+
+    return result
 
 
 @router.put("/users/{user_id}", response_model=UserResponse)
@@ -134,6 +158,34 @@ async def delete_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
+    # 导入所有需要的模型
+    from app.models import (
+        UserReferral, WalletAccount, WalletTransaction,
+        UserScriptConfig, UserScriptEnv
+    )
+
+    # 1. 删除钱包交易记录
+    try:
+        db.query(WalletTransaction).filter(WalletTransaction.user_id == user_id).delete()
+    except Exception:
+        pass  # 如果列名不对，跳过
+
+    # 2. 删除钱包账户
+    db.query(WalletAccount).filter(WalletAccount.user_id == user_id).delete()
+
+    # 3. 删除推广关系记录
+    db.query(UserReferral).filter(UserReferral.user_id == user_id).delete()
+    db.query(UserReferral).filter(UserReferral.inviter_level1 == user_id).delete()
+    db.query(UserReferral).filter(UserReferral.inviter_level2 == user_id).delete()
+
+    # 4. 删除脚本配置和环境变量
+    # 注意：QLInstance 是全局共享资源，不属于特定用户，无需在此删除
+    configs = db.query(UserScriptConfig).filter(UserScriptConfig.user_id == user_id).all()
+    for config in configs:
+        db.query(UserScriptEnv).filter(UserScriptEnv.config_id == config.id).delete()
+        db.delete(config)
+
+    # 6. 最后删除用户
     db.delete(user)
     db.commit()
     return {"message": "已删除"}

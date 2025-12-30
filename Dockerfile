@@ -8,6 +8,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# 创建日志目录
+RUN mkdir -p /app/logs && chmod 777 /app/logs
+
 # 安装依赖
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \

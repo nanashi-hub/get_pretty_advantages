@@ -1,0 +1,1059 @@
+{% extends "base.html" %}
+
+{% block title %}支付宝配置 - 快手账号管理平台{% endblock %}
+
+{% block page_title %}支付宝配置管理{% endblock %}
+
+{% block content %}
+<div class="page-actions">
+    <div class="action-group">
+        <button class="btn btn-primary" onclick="AlipayConfig.showCreateModal()">
+            <span class="icon">➕</span> 添加配置
+        </button>
+        <button class="btn btn-secondary" onclick="AlipayConfig.loadConfigs()">
+            <span class="icon">🔄</span> 刷新
+        </button>
+    </div>
+</div>
+
+<!-- 配置列表 -->
+<div class="data-card">
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th width="50">ID</th>
+                    <th width="120">配置名称</th>
+                    <th width="150">应用ID</th>
+                    <th width="100">签名方式</th>
+                    <th width="150">收款账号</th>
+                    <th>费率配置</th>
+                    <th width="80">状态</th>
+                    <th width="180">操作</th>
+                </tr>
+            </thead>
+            <tbody id="configsTableBody">
+                <tr><td colspan="8" class="loading-cell">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 当前生效配置 -->
+<div class="current-config-card" id="currentConfigCard" style="display: none;">
+    <h3>当前生效配置</h3>
+    <div class="config-details" id="currentConfigDetails"></div>
+    <div class="qrcode-section">
+        <h4>收款二维码</h4>
+        <div class="qrcode-display">
+            <img id="currentQrcode" src="" alt="收款码" onerror="this.style.display='none';document.getElementById('noQrcode').style.display='block';">
+            <div id="noQrcode" style="display:none;text-align:center;padding:40px;color:#9ca3af;">
+                <span style="font-size:40px;">📷</span>
+                <p>未设置收款码</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.current-config-card {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    margin-top: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.current-config-card h3 {
+    margin-top: 0;
+    margin-bottom: 16px;
+    color: #1f2937;
+}
+
+.config-details {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.config-detail-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.config-detail-label {
+    font-size: 12px;
+    color: #6b7280;
+    margin-bottom: 4px;
+}
+
+.config-detail-value {
+    font-weight: 500;
+    color: #1f2937;
+}
+
+.rate-preview {
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.rate-preview h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: #6b7280;
+}
+
+.rate-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 14px;
+}
+
+.rate-role {
+    color: #6b7280;
+}
+
+.rate-value {
+    font-weight: 500;
+    color: #1f2937;
+}
+
+.qrcode-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: #6b7280;
+}
+
+.qrcode-display {
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+    background: #f9fafb;
+    border-radius: 8px;
+}
+
+.qrcode-display img {
+    max-width: 300px;
+    max-height: 300px;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-active {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.status-inactive {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+.rates-tag {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+.rates-tag code {
+    background: #f3f4f6;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-right: 4px;
+}
+</style>
+
+<!-- 创建/编辑配置模态框 -->
+<div class="modal-overlay" id="configModal" style="display: none;">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3 id="modalTitle">添加支付宝配置</h3>
+            <button class="modal-close" onclick="AlipayConfig.closeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="configForm">
+                <input type="hidden" id="configId">
+
+                <div class="form-section">
+                    <h4>基本信息</h4>
+                    <div class="form-group">
+                        <label>配置名称 <span class="required">*</span></label>
+                        <input type="text" id="configName" required placeholder="例如：生产环境">
+                    </div>
+                    <div class="form-group">
+                        <label>应用ID (App ID) <span class="required">*</span></label>
+                        <input type="text" id="appId" required placeholder="支付宝开放平台应用ID">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>签名方式</label>
+                            <select id="signType">
+                                <option value="RSA2">RSA2 (推荐)</option>
+                                <option value="RSA">RSA</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>网关地址</label>
+                            <input type="text" id="gateway" value="https://openapi.alipay.com/gateway.do">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h4>密钥配置</h4>
+                    <div class="form-group">
+                        <label>应用私钥 <span class="required">*</span></label>
+                        <textarea id="privateKey" rows="4" required
+                                  placeholder="请输入应用私钥（PEM格式或原始密钥）"></textarea>
+                        <small class="form-hint">支持PEM格式或直接粘贴原始密钥内容</small>
+                    </div>
+                    <div class="form-group">
+                        <label>支付宝公钥 <span class="required">*</span></label>
+                        <textarea id="alipayPublicKey" rows="4" required
+                                  placeholder="请输入支付宝公钥（PEM格式或原始密钥）"></textarea>
+                        <small class="form-hint">从支付宝开放平台获取</small>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h4>收款信息</h4>
+                    <div class="form-group">
+                        <label>平台支付宝账号</label>
+                        <input type="text" id="alipayAccount" placeholder="用于接收平台分成的账号">
+                    </div>
+                    <div class="form-group">
+                        <label>收款码图片</label>
+                        <div class="qrcode-upload-area">
+                            <input type="hidden" id="qrcodeUrl">
+                            <div class="upload-preview" id="uploadPreview" style="display: none;">
+                                <img id="previewImage" src="" alt="收款码预览">
+                                <button type="button" class="btn btn-sm btn-danger remove-btn" onclick="AlipayConfig.removeQrcode()">✕ 移除</button>
+                            </div>
+                            <div class="upload-placeholder" id="uploadPlaceholder">
+                                <input type="file" id="qrcodeFile" accept=".jpg,.jpeg,.png,.gif,.webp" onchange="AlipayConfig.handleFileSelect(event)" style="display:none;">
+                                <button type="button" class="btn btn-secondary" onclick="document.getElementById('qrcodeFile').click()">
+                                    <span class="icon">📷</span> 选择图片
+                                </button>
+                                <p class="upload-hint">支持 jpg、png、gif、webp 格式，不超过5MB</p>
+                            </div>
+                            <div class="upload-progress" id="uploadProgress" style="display: none;">
+                                <div class="progress-bar"><div class="progress-fill"></div></div>
+                                <span>上传中...</span>
+                            </div>
+                        </div>
+                        <small class="form-hint">或从已上传的图片中选择：<a href="javascript:;" onclick="AlipayConfig.showQrcodeGallery()">查看图库</a></small>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h4>分账费率配置</h4>
+                    <div class="form-group">
+                        <label>平台抽成比例</label>
+                        <input type="number" id="platformFeeRate" step="0.0001" min="0" max="1" value="0.1">
+                        <small class="form-hint">例如：0.1 表示 10%</small>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>一级代理分成比例</label>
+                            <input type="number" id="agentL1Rate" step="0.0001" min="0" max="1" value="0.54">
+                        </div>
+                        <div class="form-group">
+                            <label>二级代理分成比例</label>
+                            <input type="number" id="agentL2Rate" step="0.0001" min="0" max="1" value="0.27">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>号主分成比例</label>
+                        <input type="number" id="userRate" step="0.0001" min="0" max="1" value="0.09">
+                        <small class="form-hint">注意：所有比例之和不应超过 1（100%）</small>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>备注</label>
+                    <input type="text" id="remark" placeholder="配置备注信息">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="AlipayConfig.closeModal()">取消</button>
+            <button class="btn btn-primary" onclick="AlipayConfig.saveConfig()">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 查看配置模态框 -->
+<div class="modal-overlay" id="viewConfigModal" style="display: none;">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3>配置详情</h3>
+            <button class="modal-close" onclick="AlipayConfig.closeViewModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="viewConfigContent">
+            <!-- 动态内容 -->
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-primary" onclick="AlipayConfig.closeViewModal()">关闭</button>
+        </div>
+    </div>
+</div>
+
+<!-- 收款码图库模态框 -->
+<div class="modal-overlay" id="qrcodeGalleryModal" style="display: none;">
+    <div class="modal" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3>收款码图库</h3>
+            <button class="modal-close" onclick="AlipayConfig.closeGalleryModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="gallery-grid" id="galleryGrid">
+                <div class="gallery-loading">加载中...</div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="AlipayConfig.closeGalleryModal()">取消</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    let allConfigs = [];
+    let editingConfigId = null;
+
+    // 页面初始化
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initPage);
+    } else {
+        setTimeout(initPage, 0);
+    }
+
+    async function initPage() {
+        await loadConfigs();
+    }
+
+    // 加载配置列表
+    async function loadConfigs() {
+        const tbody = document.getElementById('configsTableBody');
+
+        try {
+            const configs = await apiRequest('/admin/alipay/configs');
+            allConfigs = configs;
+            renderConfigs(configs);
+            updateCurrentConfigCard(configs);
+        } catch (error) {
+            tbody.innerHTML = `<tr><td colspan="8" class="error-cell">加载失败: ${error.message}</td></tr>`;
+        }
+    }
+
+    // 渲染配置列表
+    function renderConfigs(configs) {
+        const tbody = document.getElementById('configsTableBody');
+
+        if (!configs || configs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">暂无配置</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = configs.map(config => {
+            const isActive = config.status === 1;
+            const statusBadge = isActive
+                ? '<span class="status-badge status-active">生效中</span>'
+                : '<span class="status-badge status-inactive">未启用</span>';
+
+            const ratesHtml = `
+                <div class="rates-tag">
+                    <code>平台 ${(config.platform_fee_rate * 100).toFixed(1)}%</code>
+                    <code>+1 ${(config.agent_l1_rate * 100).toFixed(1)}%</code>
+                    <code>+2 ${(config.agent_l2_rate * 100).toFixed(1)}%</code>
+                    <code>号主 ${(config.user_rate * 100).toFixed(1)}%</code>
+                </div>
+            `;
+
+            return `
+                <tr>
+                    <td>${config.id}</td>
+                    <td><strong>${escapeHtml(config.name)}</strong></td>
+                    <td><code style="font-size:12px;">${config.app_id}</code></td>
+                    <td>${config.sign_type}</td>
+                    <td>${escapeHtml(config.alipay_account || '-')}</td>
+                    <td>${ratesHtml}</td>
+                    <td>${statusBadge}</td>
+                    <td>
+                        <div class="btn-group-inline">
+                            <button class="btn-action" onclick="AlipayConfig.viewConfig(${config.id})">查看</button>
+                            <button class="btn-action" onclick="AlipayConfig.editConfig(${config.id})">编辑</button>
+                            ${!isActive ? `<button class="btn-action" onclick="AlipayConfig.enableConfig(${config.id})">启用</button>` : ''}
+                            <button class="btn-action danger" onclick="AlipayConfig.deleteConfig(${config.id})">删除</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // 更新当前生效配置卡片
+    function updateCurrentConfigCard(configs) {
+        const card = document.getElementById('currentConfigCard');
+        const activeConfig = configs.find(c => c.status === 1);
+
+        if (!activeConfig) {
+            card.style.display = 'none';
+            return;
+        }
+
+        card.style.display = 'block';
+
+        document.getElementById('currentConfigDetails').innerHTML = `
+            <div class="config-detail-item">
+                <span class="config-detail-label">配置名称</span>
+                <span class="config-detail-value">${escapeHtml(activeConfig.name)}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">应用ID</span>
+                <span class="config-detail-value"><code>${activeConfig.app_id}</code></span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">平台支付宝账号</span>
+                <span class="config-detail-value">${escapeHtml(activeConfig.alipay_account || '未设置')}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">网关</span>
+                <span class="config-detail-value"><code style="font-size:12px;">${activeConfig.gateway}</code></span>
+            </div>
+        `;
+
+        // 更新收款码
+        const qrcodeImg = document.getElementById('currentQrcode');
+        if (activeConfig.qrcode_url) {
+            qrcodeImg.src = activeConfig.qrcode_url;
+            qrcodeImg.style.display = 'block';
+            document.getElementById('noQrcode').style.display = 'none';
+        } else {
+            qrcodeImg.style.display = 'none';
+            document.getElementById('noQrcode').style.display = 'block';
+        }
+    }
+
+    // 显示创建模态框
+    function showCreateModal() {
+        editingConfigId = null;
+        document.getElementById('modalTitle').textContent = '添加支付宝配置';
+        document.getElementById('configForm').reset();
+        document.getElementById('configId').value = '';
+
+        // 默认值
+        document.getElementById('signType').value = 'RSA2';
+        document.getElementById('gateway').value = 'https://openapi.alipay.com/gateway.do';
+        document.getElementById('platformFeeRate').value = '0.1';
+        document.getElementById('agentL1Rate').value = '0.54';
+        document.getElementById('agentL2Rate').value = '0.27';
+        document.getElementById('userRate').value = '0.09';
+
+        // 重置上传区域
+        document.getElementById('qrcodeUrl').value = '';
+        document.getElementById('uploadPlaceholder').style.display = 'block';
+        document.getElementById('uploadProgress').style.display = 'none';
+        document.getElementById('uploadPreview').style.display = 'none';
+
+        document.getElementById('configModal').style.display = 'flex';
+    }
+
+    // 编辑配置
+    async function editConfig(configId) {
+        const config = allConfigs.find(c => c.id === configId);
+        if (!config) return;
+
+        // 获取完整配置（包含密钥）
+        try {
+            const fullConfig = await apiRequest(`/admin/alipay/configs/${configId}?include_secrets=true`);
+
+            editingConfigId = configId;
+            document.getElementById('modalTitle').textContent = '编辑支付宝配置';
+
+            document.getElementById('configId').value = fullConfig.id;
+            document.getElementById('configName').value = fullConfig.name;
+            document.getElementById('appId').value = fullConfig.app_id;
+            document.getElementById('signType').value = fullConfig.sign_type;
+            document.getElementById('gateway').value = fullConfig.gateway;
+            document.getElementById('alipayAccount').value = fullConfig.alipay_account || '';
+            document.getElementById('platformFeeRate').value = fullConfig.platform_fee_rate;
+            document.getElementById('agentL1Rate').value = fullConfig.agent_l1_rate;
+            document.getElementById('agentL2Rate').value = fullConfig.agent_l2_rate;
+            document.getElementById('userRate').value = fullConfig.user_rate;
+            document.getElementById('remark').value = fullConfig.remark || '';
+
+            // 密钥字段可能被隐藏显示
+            if (fullConfig.private_key) {
+                document.getElementById('privateKey').value = fullConfig.private_key;
+            }
+            if (fullConfig.alipay_public_key) {
+                document.getElementById('alipayPublicKey').value = fullConfig.alipay_public_key;
+            }
+
+            // 处理收款码图片预览
+            const qrcodeUrl = fullConfig.qrcode_url || '';
+            document.getElementById('qrcodeUrl').value = qrcodeUrl;
+            if (qrcodeUrl) {
+                document.getElementById('previewImage').src = qrcodeUrl;
+                document.getElementById('uploadPlaceholder').style.display = 'none';
+                document.getElementById('uploadProgress').style.display = 'none';
+                document.getElementById('uploadPreview').style.display = 'inline-block';
+            } else {
+                document.getElementById('uploadPlaceholder').style.display = 'block';
+                document.getElementById('uploadProgress').style.display = 'none';
+                document.getElementById('uploadPreview').style.display = 'none';
+            }
+
+            document.getElementById('configModal').style.display = 'flex';
+        } catch (error) {
+            showToast('获取配置详情失败: ' + error.message, 'error');
+        }
+    }
+
+    // 保存配置
+    async function saveConfig() {
+        const data = {
+            name: document.getElementById('configName').value,
+            app_id: document.getElementById('appId').value,
+            private_key: document.getElementById('privateKey').value,
+            alipay_public_key: document.getElementById('alipayPublicKey').value,
+            sign_type: document.getElementById('signType').value,
+            gateway: document.getElementById('gateway').value,
+            alipay_account: document.getElementById('alipayAccount').value || null,
+            qrcode_url: document.getElementById('qrcodeUrl').value || null,
+            platform_fee_rate: parseFloat(document.getElementById('platformFeeRate').value) || 0,
+            agent_l1_rate: parseFloat(document.getElementById('agentL1Rate').value) || 0,
+            agent_l2_rate: parseFloat(document.getElementById('agentL2Rate').value) || 0,
+            user_rate: parseFloat(document.getElementById('userRate').value) || 0,
+            remark: document.getElementById('remark').value || null
+        };
+
+        // 验证
+        if (!data.name || !data.app_id || !data.private_key || !data.alipay_public_key) {
+            showToast('请填写必填字段', 'error');
+            return;
+        }
+
+        // 验证费率总和
+        const totalRate = data.platform_fee_rate + data.agent_l1_rate + data.agent_l2_rate + data.user_rate;
+        if (totalRate > 1) {
+            showToast(`费率总和 (${(totalRate * 100).toFixed(1)}%) 不能超过 100%`, 'error');
+            return;
+        }
+
+        try {
+            showToast('正在保存...', 'info');
+
+            if (editingConfigId) {
+                await apiRequest(`/admin/alipay/configs/${editingConfigId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(data)
+                });
+                showToast('配置更新成功', 'success');
+            } else {
+                await apiRequest('/admin/alipay/configs', {
+                    method: 'POST',
+                    body: JSON.stringify(data)
+                });
+                showToast('配置创建成功', 'success');
+            }
+
+            closeModal();
+            await loadConfigs();
+        } catch (error) {
+            showToast('保存失败: ' + error.message, 'error');
+        }
+    }
+
+    // 查看配置
+    async function viewConfig(configId) {
+        try {
+            const config = await apiRequest(`/admin/alipay/configs/${configId}?include_secrets=true`);
+
+            const content = document.getElementById('viewConfigContent');
+            content.innerHTML = `
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">配置名称</span>
+                    <span class="modal-detail-value">${escapeHtml(config.name)}</span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">应用ID</span>
+                    <span class="modal-detail-value"><code>${config.app_id}</code></span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">签名方式</span>
+                    <span class="modal-detail-value">${config.sign_type}</span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">网关</span>
+                    <span class="modal-detail-value"><code style="font-size:12px;">${config.gateway}</code></span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">应用私钥</span>
+                    <span class="modal-detail-value"><code style="font-size:11px;word-break:break-all;">${config.private_key ? config.private_key.substring(0, 50) + '...' : '未设置'}</code></span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">支付宝公钥</span>
+                    <span class="modal-detail-value"><code style="font-size:11px;word-break:break-all;">${config.alipay_public_key ? config.alipay_public_key.substring(0, 50) + '...' : '未设置'}</code></span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">平台账号</span>
+                    <span class="modal-detail-value">${escapeHtml(config.alipay_account || '未设置')}</span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">收款码</span>
+                    <span class="modal-detail-value">${config.qrcode_url || '未设置'}</span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">平台费率</span>
+                    <span class="modal-detail-value">${(config.platform_fee_rate * 100).toFixed(1)}%</span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">一级代理</span>
+                    <span class="modal-detail-value">${(config.agent_l1_rate * 100).toFixed(1)}%</span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">二级代理</span>
+                    <span class="modal-detail-value">${(config.agent_l2_rate * 100).toFixed(1)}%</span>
+                </div>
+                <div class="modal-detail-row">
+                    <span class="modal-detail-label">号主</span>
+                    <span class="modal-detail-value">${(config.user_rate * 100).toFixed(1)}%</span>
+                </div>
+            `;
+
+            document.getElementById('viewConfigModal').style.display = 'flex';
+        } catch (error) {
+            showToast('获取配置失败: ' + error.message, 'error');
+        }
+    }
+
+    // 启用配置
+    async function enableConfig(configId) {
+        if (!confirm('确定要启用此配置吗？将禁用其他配置。')) return;
+
+        try {
+            await apiRequest(`/admin/alipay/configs/${configId}/enable`, {
+                method: 'POST'
+            });
+            showToast('已启用', 'success');
+            await loadConfigs();
+        } catch (error) {
+            showToast('操作失败: ' + error.message, 'error');
+        }
+    }
+
+    // 删除配置
+    async function deleteConfig(configId) {
+        if (!confirm('确定要删除此配置吗？此操作不可恢复。')) return;
+
+        try {
+            await apiRequest(`/admin/alipay/configs/${configId}`, {
+                method: 'DELETE'
+            });
+            showToast('已删除', 'success');
+            await loadConfigs();
+        } catch (error) {
+            showToast('删除失败: ' + error.message, 'error');
+        }
+    }
+
+    // 关闭模态框
+    function closeModal() {
+        document.getElementById('configModal').style.display = 'none';
+        editingConfigId = null;
+    }
+
+    // 关闭查看模态框
+    function closeViewModal() {
+        document.getElementById('viewConfigModal').style.display = 'none';
+    }
+
+    // HTML 转义
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // ==================== 收款码上传相关函数 ====================
+
+    // 处理文件选择
+    async function handleFileSelect(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // 验证文件类型
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        if (!allowedTypes.includes(file.type)) {
+            showToast('不支持的文件格式，请选择 jpg、png、gif 或 webp 图片', 'error');
+            return;
+        }
+
+        // 验证文件大小（5MB）
+        if (file.size > 5 * 1024 * 1024) {
+            showToast('文件大小不能超过 5MB', 'error');
+            return;
+        }
+
+        // 显示上传进度
+        document.getElementById('uploadPlaceholder').style.display = 'none';
+        document.getElementById('uploadProgress').style.display = 'block';
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const token = localStorage.getItem('access_token');
+            const response = await fetch('/api/admin/alipay/upload-qrcode', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.detail || '上传失败');
+            }
+
+            // 上传成功，显示预览
+            document.getElementById('qrcodeUrl').value = result.url;
+            document.getElementById('previewImage').src = result.url;
+            document.getElementById('uploadProgress').style.display = 'none';
+            document.getElementById('uploadPreview').style.display = 'inline-block';
+
+            showToast('图片上传成功', 'success');
+        } catch (error) {
+            document.getElementById('uploadProgress').style.display = 'none';
+            document.getElementById('uploadPlaceholder').style.display = 'block';
+            showToast('上传失败: ' + error.message, 'error');
+        }
+
+        // 重置文件输入
+        event.target.value = '';
+    }
+
+    // 移除收款码
+    function removeQrcode() {
+        document.getElementById('qrcodeUrl').value = '';
+        document.getElementById('uploadPreview').style.display = 'none';
+        document.getElementById('uploadPlaceholder').style.display = 'block';
+    }
+
+    // 显示图库模态框
+    async function showQrcodeGallery() {
+        document.getElementById('qrcodeGalleryModal').style.display = 'flex';
+        await loadGallery();
+    }
+
+    // 关闭图库模态框
+    function closeGalleryModal() {
+        document.getElementById('qrcodeGalleryModal').style.display = 'none';
+    }
+
+    // 加载图库
+    async function loadGallery() {
+        const grid = document.getElementById('galleryGrid');
+        grid.innerHTML = '<div class="gallery-loading">加载中...</div>';
+
+        try {
+            const result = await apiRequest('/admin/alipay/qrcode-list');
+            const files = result.files || [];
+
+            if (files.length === 0) {
+                grid.innerHTML = '<div class="gallery-empty">暂无已上传的图片</div>';
+                return;
+            }
+
+            grid.innerHTML = files.map(file => {
+                const sizeKB = (file.size / 1024).toFixed(1);
+                const date = new Date(file.created_at).toLocaleString('zh-CN');
+                return `
+                    <div class="gallery-item" onclick="AlipayConfig.selectGalleryImage('${file.url}')">
+                        <img src="${file.url}" alt="${file.filename}" loading="lazy">
+                        <div class="gallery-item-info">
+                            <div>${sizeKB} KB</div>
+                            <div>${date}</div>
+                        </div>
+                        <button class="delete-btn" onclick="event.stopPropagation(); AlipayConfig.deleteGalleryImage('${file.filename}')">✕</button>
+                    </div>
+                `;
+            }).join('');
+        } catch (error) {
+            grid.innerHTML = `<div class="gallery-empty">加载失败: ${error.message}</div>`;
+        }
+    }
+
+    // 选择图库中的图片
+    function selectGalleryImage(url) {
+        document.getElementById('qrcodeUrl').value = url;
+        document.getElementById('previewImage').src = url;
+        document.getElementById('uploadPlaceholder').style.display = 'none';
+        document.getElementById('uploadProgress').style.display = 'none';
+        document.getElementById('uploadPreview').style.display = 'inline-block';
+        closeGalleryModal();
+        showToast('已选择收款码图片', 'success');
+    }
+
+    // 删除图库中的图片
+    async function deleteGalleryImage(filename) {
+        if (!confirm('确定要删除此图片吗？')) return;
+
+        try {
+            await apiRequest(`/admin/alipay/qrcode/${filename}`, {
+                method: 'DELETE'
+            });
+            showToast('图片已删除', 'success');
+            await loadGallery();
+        } catch (error) {
+            showToast('删除失败: ' + error.message, 'error');
+        }
+    }
+
+    // 更新模态框中的预览状态
+    function updateUploadPreview(qrcodeUrl) {
+        if (qrcodeUrl) {
+            document.getElementById('qrcodeUrl').value = qrcodeUrl;
+            document.getElementById('previewImage').src = qrcodeUrl;
+            document.getElementById('uploadPlaceholder').style.display = 'none';
+            document.getElementById('uploadProgress').style.display = 'none';
+            document.getElementById('uploadPreview').style.display = 'inline-block';
+        } else {
+            document.getElementById('qrcodeUrl').value = '';
+            document.getElementById('uploadPlaceholder').style.display = 'block';
+            document.getElementById('uploadProgress').style.display = 'none';
+            document.getElementById('uploadPreview').style.display = 'none';
+        }
+    }
+
+    // 导出全局API
+    window.AlipayConfig = {
+        loadConfigs,
+        showCreateModal,
+        closeModal,
+        saveConfig,
+        editConfig,
+        viewConfig,
+        closeViewModal,
+        enableConfig,
+        deleteConfig,
+        // 新增的上传相关函数
+        handleFileSelect,
+        removeQrcode,
+        showQrcodeGallery,
+        closeGalleryModal,
+        selectGalleryImage,
+        deleteGalleryImage
+    };
+})();
+</script>
+
+<style>
+.form-section {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.form-section:last-child {
+    border-bottom: none;
+}
+
+.form-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #9ca3af;
+}
+
+.modal-detail-row {
+    display: flex;
+    padding: 8px 0;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.modal-detail-row:last-child {
+    border-bottom: none;
+}
+
+.modal-detail-label {
+    width: 100px;
+    color: #6b7280;
+    font-size: 13px;
+}
+
+.modal-detail-value {
+    flex: 1;
+    font-weight: 500;
+    word-break: break-word;
+}
+
+/* 收款码上传区域样式 */
+.qrcode-upload-area {
+    border: 2px dashed #e5e7eb;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+    background: #f9fafb;
+    transition: border-color 0.2s;
+}
+
+.qrcode-upload-area:hover {
+    border-color: #9ca3af;
+}
+
+.upload-preview {
+    position: relative;
+    display: inline-block;
+}
+
+.upload-preview img {
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.upload-preview .remove-btn {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 14px;
+    border-radius: 50%;
+    background: #ef4444;
+    color: white;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.upload-placeholder {
+    padding: 20px 0;
+}
+
+.upload-hint {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-top: 8px;
+    margin-bottom: 0;
+}
+
+.upload-progress {
+    padding: 20px 0;
+}
+
+.progress-bar {
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+    width: 0%;
+    transition: width 0.3s;
+    animation: progressPulse 1s ease-in-out infinite;
+}
+
+@keyframes progressPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* 图库样式 */
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.gallery-item {
+    position: relative;
+    border: 2px solid transparent;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: #f9fafb;
+}
+
+.gallery-item:hover {
+    border-color: #3b82f6;
+    transform: scale(1.02);
+}
+
+.gallery-item img {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+}
+
+.gallery-item-info {
+    padding: 8px;
+    font-size: 11px;
+    color: #6b7280;
+    background: white;
+}
+
+.gallery-item .delete-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    font-size: 12px;
+    border-radius: 50%;
+    background: rgba(239, 68, 68, 0.9);
+    color: white;
+    border: none;
+    cursor: pointer;
+    display: none;
+}
+
+.gallery-item:hover .delete-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.gallery-loading, .gallery-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 40px;
+    color: #9ca3af;
+}
+</style>
+{% endblock %}

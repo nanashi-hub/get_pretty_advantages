@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.database import get_db
 from app.models import UserScriptConfig, UserScriptEnv, QLInstance, User, UserRole
 from app.schemas import (
     UserScriptConfigCreate, UserScriptConfigUpdate, UserScriptConfigResponse,
-    UserScriptEnvCreate, UserScriptEnvUpdate, UserScriptEnvResponse
+    UserScriptEnvCreate, UserScriptEnvUpdate, UserScriptEnvResponse, EnvDisableRequest
 )
 from app.auth import get_current_user
 from app.services.qinglong import QingLongClient
@@ -327,28 +327,31 @@ async def enable_env_in_ql(
     config = db.query(UserScriptConfig).filter(UserScriptConfig.id == config_id).first()
     if not config:
         raise HTTPException(status_code=404, detail="配置不存在")
-    
+
     if current_user.role != UserRole.ADMIN and config.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作此配置")
-    
+
     env = db.query(UserScriptEnv).filter(
         UserScriptEnv.id == env_id,
         UserScriptEnv.config_id == config_id
     ).first()
     if not env:
         raise HTTPException(status_code=404, detail="环境变量不存在")
-    
+
     if not env.ql_env_id:
         raise HTTPException(status_code=400, detail="该变量尚未同步到青龙，请先同步")
-    
+
     try:
         client = get_ql_client(db, config.ql_instance_id)
         client.enable_env(env.ql_env_id)
-        
-        # 更新本地状态
+
+        # 更新本地状态，清除禁用恢复字段
         env.status = 'valid'
+        env.disabled_until = None
+        env.disable_days = None
+        env.disabled_at = None
         db.commit()
-        
+
         return {"message": "启用成功"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"启用失败: {e}")
@@ -358,36 +361,47 @@ async def enable_env_in_ql(
 async def disable_env_in_ql(
     config_id: int,
     env_id: int,
+    request_data: EnvDisableRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """禁用青龙环境变量"""
+    """禁用青龙环境变量，支持指定天数后自动恢复"""
     config = db.query(UserScriptConfig).filter(UserScriptConfig.id == config_id).first()
     if not config:
         raise HTTPException(status_code=404, detail="配置不存在")
-    
+
     if current_user.role != UserRole.ADMIN and config.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作此配置")
-    
+
     env = db.query(UserScriptEnv).filter(
         UserScriptEnv.id == env_id,
         UserScriptEnv.config_id == config_id
     ).first()
     if not env:
         raise HTTPException(status_code=404, detail="环境变量不存在")
-    
+
     if not env.ql_env_id:
         raise HTTPException(status_code=400, detail="该变量尚未同步到青龙，请先同步")
-    
+
     try:
         client = get_ql_client(db, config.ql_instance_id)
         client.disable_env(env.ql_env_id)
-        
-        # 更新本地状态
+
+        # 更新本地状态和禁用恢复时间
+        now = datetime.now()
+        disabled_until = now + timedelta(days=request_data.days)
+
         env.status = 'invalid'
+        env.disable_days = request_data.days
+        env.disabled_at = now
+        env.disabled_until = disabled_until
         db.commit()
-        
-        return {"message": "禁用成功"}
+
+        return {
+            "message": f"禁用成功，将在{request_data.days}天后自动恢复",
+            "disabled_until": disabled_until.isoformat(),
+            "days": request_data.days
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"禁用失败: {e}")
 
@@ -443,13 +457,121 @@ async def list_ql_envs(
     config = db.query(UserScriptConfig).filter(UserScriptConfig.id == config_id).first()
     if not config:
         raise HTTPException(status_code=404, detail="配置不存在")
-    
+
     if current_user.role != UserRole.ADMIN and config.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作此配置")
-    
+
     try:
         client = get_ql_client(db, config.ql_instance_id)
         envs = client.list_envs(search_value=search)
         return {"data": envs, "total": len(envs)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"查询失败: {e}")
+
+
+# ==================== 自动恢复禁用的环境变量 ====================
+
+@router.post("/script-configs/auto-restore-disabled")
+async def auto_restore_disabled_envs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    自动恢复禁用到期的环境变量
+    可由定时任务（如 APScheduler）定期调用
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="仅管理员可执行")
+
+    now = datetime.now()
+
+    # 查找所有已过期且仍处于禁用状态的环境变量
+    expired_envs = db.query(UserScriptEnv).filter(
+        UserScriptEnv.status == 'invalid',
+        UserScriptEnv.disabled_until.isnot(None),
+        UserScriptEnv.disabled_until <= now
+    ).all()
+
+    restored_count = 0
+    failed_count = 0
+    results = []
+
+    for env in expired_envs:
+        try:
+            config = env.config
+            if not config or not config.ql_instance_id:
+                results.append({"env_id": env.id, "status": "skip", "reason": "无配置或青龙实例"})
+                continue
+
+            client = get_ql_client(db, config.ql_instance_id)
+
+            if env.ql_env_id:
+                # 在青龙中启用
+                client.enable_env(env.ql_env_id)
+
+            # 更新本地状态
+            env.status = 'valid'
+            env.disabled_until = None
+            env.disable_days = None
+            env.disabled_at = None
+            db.commit()
+
+            restored_count += 1
+            results.append({
+                "env_id": env.id,
+                "env_name": env.env_name,
+                "status": "restored",
+                "disabled_days": env.disable_days
+            })
+        except Exception as e:
+            failed_count += 1
+            results.append({
+                "env_id": env.id,
+                "env_name": env.env_name,
+                "status": "failed",
+                "error": str(e)
+            })
+
+    return {
+        "message": f"恢复完成: {restored_count}个成功, {failed_count}个失败",
+        "restored_count": restored_count,
+        "failed_count": failed_count,
+        "details": results
+    }
+
+
+@router.get("/script-configs/disabled-pending")
+async def get_disabled_pending_envs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取即将自动恢复的禁用环境变量列表"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="仅管理员可查看")
+
+    now = datetime.now()
+
+    # 查找所有禁用中且未过期的环境变量
+    pending_envs = db.query(UserScriptEnv).filter(
+        UserScriptEnv.status == 'invalid',
+        UserScriptEnv.disabled_until.isnot(None),
+        UserScriptEnv.disabled_until > now
+    ).all()
+
+    results = []
+    for env in pending_envs:
+        results.append({
+            "id": env.id,
+            "env_name": env.env_name,
+            "config_id": env.config_id,
+            "user_id": env.config.user_id if env.config else None,
+            "disabled_at": env.disabled_at.isoformat() if env.disabled_at else None,
+            "disabled_until": env.disabled_until.isoformat() if env.disabled_until else None,
+            "disable_days": env.disable_days,
+            "remaining_hours": int((env.disabled_until - now).total_seconds() / 3600) if env.disabled_until else None
+        })
+
+    # 按剩余时间排序
+    results.sort(key=lambda x: x["remaining_hours"] or 0)
+
+    return {"data": results, "total": len(results)}

@@ -4,10 +4,11 @@ from typing import List, Optional, Set
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.auth import get_current_user
 from app.database import get_db
+from app.logging_config import get_logger
 from app.models import (
     EnvStatus,
     ConfigStatus,
@@ -269,6 +270,7 @@ def get_config_or_404(config_id: int, db: Session) -> UserScriptConfig:
 def get_env_or_404(env_id: int, config_id: int, db: Session) -> UserScriptEnv:
     env = (
         db.query(UserScriptEnv)
+        .options(joinedload(UserScriptEnv.ip))  # 预加载 IP 关联
         .filter(
             UserScriptEnv.id == env_id,
             UserScriptEnv.config_id == config_id,
@@ -309,10 +311,11 @@ def sync_env_to_ql(
 ) -> str:
     """同步本地环境变量到青龙并返回青龙ID"""
     ql_value = build_ql_value(env, ip or env.ip)
+    remarks = (env.remark or f"配置ID:{config_id}")[:200]
     result = client.sync_env(
         name=env.env_name,
         value=ql_value,
-        remarks=env.remark or f"配置ID:{config_id}",
+        remarks=remarks,
         enabled=enable if enable is not None else env.status == EnvStatus.VALID.value,
     )
     ql_env_id = result.get("id") or result.get("_id")
@@ -557,6 +560,7 @@ async def update_env(
     current_user: User = Depends(get_current_user),
 ):
     """修改环境变量（如果已同步，将同时更新青龙）"""
+    logger = get_logger(__name__)
     config = get_config_or_404(config_id, db)
     assert_config_permission(current_user, config, db)
     env = get_env_or_404(env_id, config_id, db)
@@ -575,36 +579,45 @@ async def update_env(
         ip_obj = get_ip_with_usage(db, data.ip_id, exclude_env_id=env.id)
         env.ip_id = data.ip_id
     else:
-        ip_obj = env.ip
+        # 如果没有传入新的 ip_id，使用现有的 IP 对象（已在 get_env_or_404 中预加载）
+        ip_obj = env.ip if env.ip_id else None
+        # 如果现有 IP 已失效，清除关联
+        if ip_obj and (ip_obj.status != "active" or (ip_obj.expire_date and ip_obj.expire_date < date.today())):
+            logger.warning(f"环境变量 {env_id} 的 IP {ip_obj.id} 已失效，清除关联")
+            env.ip_id = None
+            ip_obj = None
 
     # 同步到青龙（无论是否已有 ql_env_id）
     try:
         client = get_ql_client_for_config(config, db)
-        if env.ql_env_id:
-            client.update_env(
-                env.ql_env_id,
-                name=env.env_name,
-                value=build_ql_value(env, ip_obj),
-                remarks=env.remark or f"配置ID:{config_id}",
+        old_ql_env_id = env.ql_env_id
+        ql_id = sync_env_to_ql(
+            client,
+            env,
+            config_id,
+            enable=env.status == EnvStatus.VALID.value,
+            ip=ip_obj,
+        )
+        if old_ql_env_id and str(old_ql_env_id) != str(ql_id):
+            logger.warning(
+                "青龙变量ID已变更: env_name=%s, old_ql_env_id=%s, new_ql_env_id=%s",
+                env.env_name,
+                old_ql_env_id,
+                ql_id,
             )
-            if env.status == EnvStatus.VALID.value:
-                client.enable_env(env.ql_env_id)
-            elif env.status == EnvStatus.INVALID.value:
-                client.disable_env(env.ql_env_id)
-        else:
-            env.ql_env_id = sync_env_to_ql(
-                client,
-                env,
-                config_id,
-                enable=env.status == EnvStatus.VALID.value,
-                ip=ip_obj,
-            )
+        env.ql_env_id = ql_id
+        logger.info("同步到青龙成功: env_name=%s, ql_env_id=%s", env.env_name, env.ql_env_id)
+
         config.last_sync_at = datetime.now()
         db.commit()
         db.refresh(env)
     except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"同步青龙失败: {exc}")
+        logger.error(f"同步青龙失败: env_id={env_id}, env_name={env.env_name}, error={exc}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"同步青龙失败: {exc}"
+        )
 
     ip_ids_to_recalc: Set[int] = set()
     if old_ip_id:
@@ -613,16 +626,19 @@ async def update_env(
         ip_ids_to_recalc.add(env.ip_id)
     if ip_ids_to_recalc:
         recalc_ip_usage(db, ip_ids_to_recalc)
+
+    # 获取当前 IP 使用情况
     used_count = 0
-    if ip_obj:
-        used_count = (
-            db.query(func.count(UserScriptEnv.id))
-            .filter(UserScriptEnv.ip_id == ip_obj.id)
-            .scalar()
-            or 0
+    current_ip_obj = None
+    if env.ip_id:
+        current_ip_obj = (
+            db.query(IPPool)
+            .filter(IPPool.id == env.ip_id)
+            .first()
         )
-        ip_obj.usage_count = used_count
-        db.commit()
+        if current_ip_obj:
+            used_count = current_ip_obj.usage_count or 0
+
     return {
         "id": env.id,
         "config_id": env.config_id,
@@ -631,14 +647,14 @@ async def update_env(
         "ql_env_id": env.ql_env_id,
         "ip_id": env.ip_id,
         "ip_info": {
-            "id": ip_obj.id,
-            "proxy_url": build_proxy_url(ip_obj),
-            "region": ip_obj.region,
-            "vendor": ip_obj.vendor,
-            "max_users": ip_obj.max_users or 2,
+            "id": current_ip_obj.id,
+            "proxy_url": build_proxy_url(current_ip_obj),
+            "region": current_ip_obj.region,
+            "vendor": current_ip_obj.vendor,
+            "max_users": current_ip_obj.max_users or 2,
             "used": used_count,
         }
-        if ip_obj
+        if current_ip_obj
         else None,
         "status": env.status,
         "remark": env.remark,
@@ -689,23 +705,11 @@ async def enable_env(
     ip_obj = get_ip_with_usage(db, env.ip_id, exclude_env_id=env.id) if env.ip_id else None
 
     try:
-        # 同步最新值
-        if env.ql_env_id:
-            client.update_env(
-                env.ql_env_id,
-                name=env.env_name,
-                value=build_ql_value(env, ip_obj),
-                remarks=env.remark or f"配置ID:{config_id}",
-            )
-        else:
-            env.ql_env_id = sync_env_to_ql(
-                client, env, config_id, enable=True, ip=ip_obj
-            )
+        env.ql_env_id = sync_env_to_ql(client, env, config_id, enable=True, ip=ip_obj)
 
         if not env.ql_env_id:
             raise HTTPException(status_code=500, detail="同步青龙失败，缺少ID")
 
-        client.enable_env(env.ql_env_id)
         env.status = EnvStatus.VALID.value
         config.last_sync_at = datetime.now()
         db.commit()
@@ -732,7 +736,7 @@ async def disable_env(
 
     client = get_ql_client_for_config(config, db)
     try:
-        client.disable_env(env.ql_env_id)
+        env.ql_env_id = sync_env_to_ql(client, env, config_id, enable=False)
         env.status = EnvStatus.INVALID.value
         config.last_sync_at = datetime.now()
         db.commit()

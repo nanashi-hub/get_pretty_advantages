@@ -62,7 +62,13 @@
                         <span class="nav-text">推广中心</span>
                     </a>
                 </li>
-                
+                <li class="nav-item">
+                    <a href="/recharge" class="nav-link {% if active_page == 'recharge' %}active{% endif %}">
+                        <span class="nav-icon">💳</span>
+                        <span class="nav-text">充值中心</span>
+                    </a>
+                </li>
+
                 <li class="nav-section admin-only">系统管理</li>
                 <li class="nav-item admin-only">
                     <a href="/admin/users" class="nav-link {% if active_page == 'users' %}active{% endif %}">
@@ -80,6 +86,18 @@
                     <a href="/admin/referrals" class="nav-link {% if active_page == 'referrals' %}active{% endif %}">
                         <span class="nav-icon">🔗</span>
                         <span class="nav-text">推广关系</span>
+                    </a>
+                </li>
+                <li class="nav-item admin-only">
+                    <a href="/admin/recharge" class="nav-link {% if active_page == 'recharge_admin' %}active{% endif %}">
+                        <span class="nav-icon">💰</span>
+                        <span class="nav-text">充值管理</span>
+                    </a>
+                </li>
+                <li class="nav-item admin-only">
+                    <a href="/admin/alipay-config" class="nav-link {% if active_page == 'alipay_config' %}active{% endif %}">
+                        <span class="nav-icon">⚙️</span>
+                        <span class="nav-text">支付宝配置</span>
                     </a>
                 </li>
                 <li class="nav-item">
@@ -131,7 +149,12 @@
         <div class="modal" id="modal">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">标题</h3>
-                <button class="modal-close" id="modalClose" onclick="closeGlobalModal()">&times;</button>
+                <div class="modal-header-actions">
+                    <button class="modal-fullscreen-btn" id="modalFullscreenBtn" title="全屏显示" onclick="toggleModalFullscreen()">
+                        <span id="fullscreenIcon">⛶</span>
+                    </button>
+                    <button class="modal-close" id="modalClose" onclick="closeGlobalModal()">&times;</button>
+                </div>
             </div>
             <div class="modal-body" id="modalBody">
                 <!-- 动态内容 -->
@@ -147,10 +170,48 @@
         // 全局模态框关闭函数
         function closeGlobalModal() {
             document.getElementById('modalOverlay').style.display = 'none';
+            // 关闭时退出全屏
+            exitModalFullscreen();
         }
         // 点击遮罩层关闭
         document.getElementById('modalOverlay').addEventListener('click', function(e) {
             if (e.target === this) closeGlobalModal();
+        });
+
+        // 模态框全屏切换
+        let isModalFullscreen = false;
+        function toggleModalFullscreen() {
+            const modal = document.getElementById('modal');
+            const icon = document.getElementById('fullscreenIcon');
+            const btn = document.getElementById('modalFullscreenBtn');
+
+            if (isModalFullscreen) {
+                exitModalFullscreen();
+            } else {
+                // 进入全屏
+                modal.classList.add('modal-fullscreen');
+                icon.textContent = '⛶';
+                btn.title = '退出全屏';
+                isModalFullscreen = true;
+            }
+        }
+
+        function exitModalFullscreen() {
+            const modal = document.getElementById('modal');
+            const icon = document.getElementById('fullscreenIcon');
+            const btn = document.getElementById('modalFullscreenBtn');
+
+            modal.classList.remove('modal-fullscreen');
+            icon.textContent = '⛶';
+            btn.title = '全屏显示';
+            isModalFullscreen = false;
+        }
+
+        // 按 ESC 退出全屏
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && isModalFullscreen) {
+                exitModalFullscreen();
+            }
         });
     </script>
     

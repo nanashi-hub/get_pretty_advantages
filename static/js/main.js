@@ -406,8 +406,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // 加载用户信息
         loadCurrentUser();
         
-        // 旧仪表板兼容
-        if (document.getElementById('usersTable') && document.getElementById('usersTableBody')) {
+        // 旧仪表板兼容（排除用户管理页面）
+        const isUserAdminPage = window.location.pathname === '/admin/users';
+        if (!isUserAdminPage && document.getElementById('usersTable') && document.getElementById('usersTableBody')) {
             loadUsers();
         }
     }
