@@ -83,3 +83,5 @@ curl -X POST "http://localhost:1212/api/admin/create-admin?admin_secret=ADMIN_SE
 - APK 下载：`/data/software/快手极速版提ck.apk`
 - 新手说明：`data/describe/新手搭建说明.md`（前端通过 `/api/guide/content` 展示）
 - 进群二维码：`/data/describe/images/进群.jpg`
+
+  ![进群二维码](data/describe/images/进群.jpg)
