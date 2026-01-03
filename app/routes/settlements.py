@@ -490,7 +490,7 @@ async def confirm_settlement_payment(
     """确认缴费（管理员）"""
     now = datetime.now()
 
-    with db.begin():
+    try:
         payment = (
             db.query(SettlementPayment)
             .filter(SettlementPayment.payment_id == int(payment_id))
@@ -612,7 +612,7 @@ async def confirm_settlement_payment(
                 {"now": now, "period_id": period_id, "source_user_id": source_user_id},
             )
 
-            # 阶段3：尝试即时解锁（满足“上级已缴清”的受益人，以及本次缴清的 payer 自己）
+            # 阶段3：尝试即时解锁（满足"上级已缴清"的受益人，以及本次缴清的 payer 自己）
             beneficiary_rows = (
                 db.execute(
                     text(
@@ -637,10 +637,15 @@ async def confirm_settlement_payment(
                     if bid > 0:
                         unlock_commissions_for_beneficiary(db, period_id, bid, now=now)
 
-                # payer 本人本期若存在已资金化但未解锁的分成，也在其“缴清”后立即解锁
+                # payer 本人本期若存在已资金化但未解锁的分成，也在其"缴清"后立即解锁
                 unlock_commissions_for_beneficiary(db, period_id, source_user_id, now=now)
             except ValueError as exc:
                 raise HTTPException(status_code=409, detail=str(exc))
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise exc
 
     db.refresh(payment)
     return payment
@@ -656,7 +661,7 @@ async def reject_settlement_payment(
     """驳回缴费（管理员）"""
     now = datetime.now()
 
-    with db.begin():
+    try:
         payment = (
             db.query(SettlementPayment)
             .filter(SettlementPayment.payment_id == int(payment_id))
@@ -672,6 +677,11 @@ async def reject_settlement_payment(
         payment.confirmed_at = now
         payment.confirmed_by = current_user.id
         payment.reject_reason = data.reject_reason
+
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise exc
 
     db.refresh(payment)
     return payment
