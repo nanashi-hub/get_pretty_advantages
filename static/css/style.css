@@ -428,6 +428,10 @@ body:not(.has-sidebar) {
     color: rgba(255,255,255,0.8);
 }
 
+.stat-card.highlight .text-muted {
+    color: rgba(255,255,255,0.85);
+}
+
 .stat-icon {
     font-size: 32px;
 }

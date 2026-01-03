@@ -45,9 +45,9 @@
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a href="/settlements" class="nav-link {% if active_page == 'settlements' %}active{% endif %}">
-                        <span class="nav-icon">📋</span>
-                        <span class="nav-text">结算管理</span>
+                    <a href="/settlement-center" class="nav-link {% if active_page == 'settlement_center' %}active{% endif %}">
+                        <span class="nav-icon">结</span>
+                        <span class="nav-text">结算中心</span>
                     </a>
                 </li>
                 <li class="nav-item">
@@ -98,6 +98,18 @@
                     <a href="/admin/alipay-config" class="nav-link {% if active_page == 'alipay_config' %}active{% endif %}">
                         <span class="nav-icon">⚙️</span>
                         <span class="nav-text">支付宝配置</span>
+                    </a>
+                </li>
+                <li class="nav-item admin-only">
+                    <a href="/admin/settlement-payments" class="nav-link {% if active_page == 'settlement_payments' %}active{% endif %}">
+                        <span class="nav-icon">审</span>
+                        <span class="nav-text">缴费审核</span>
+                    </a>
+                </li>
+                <li class="nav-item admin-only">
+                    <a href="/admin/withdraw-requests" class="nav-link {% if active_page == 'withdraw_requests' %}active{% endif %}">
+                        <span class="nav-icon">💸</span>
+                        <span class="nav-text">提现审核</span>
                     </a>
                 </li>
                 <li class="nav-item">

@@ -19,6 +19,7 @@ from app.models import (
     UserRole,
     UserScriptConfig,
     UserScriptEnv,
+    EarningRecord,
 )
 from app.schemas import (
     UserScriptConfigResponse,
@@ -260,6 +261,32 @@ def get_ip_with_usage(
     return ip
 
 
+def normalize_remark_or_400(remark: Optional[str]) -> str:
+    """备注去空格并强制必填"""
+    normalized = (remark or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="备注不能为空（用于收益统计唯一标识）")
+    return normalized
+
+
+def normalize_cookie_or_400(cookie: Optional[str]) -> str:
+    """ksck 去空格并强制必填"""
+    normalized = (cookie or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="请填写 ksck 值")
+    return normalized
+
+
+def assert_unique_remark(db: Session, remark: str, exclude_env_id: Optional[int] = None) -> None:
+    """校验备注唯一（全表唯一）"""
+    query = db.query(UserScriptEnv.id).filter(UserScriptEnv.remark == remark)
+    if exclude_env_id is not None:
+        query = query.filter(UserScriptEnv.id != exclude_env_id)
+    exists = db.query(query.exists()).scalar()
+    if exists:
+        raise HTTPException(status_code=400, detail="备注必须为唯一值")
+
+
 def get_config_or_404(config_id: int, db: Session) -> UserScriptConfig:
     config = db.query(UserScriptConfig).filter(UserScriptConfig.id == config_id).first()
     if not config:
@@ -483,25 +510,27 @@ async def create_env(
         raise HTTPException(status_code=403, detail="无权为该用户新增环境变量")
     if current_user.role == UserRole.NORMAL and current_user.id == config.user_id:
         raise HTTPException(status_code=403, detail="普通用户无法新增环境变量")
-    if not data.cookie:
-        raise HTTPException(status_code=400, detail="请填写 ksck 值")
+    cookie = normalize_cookie_or_400(data.cookie)
+    remark = normalize_remark_or_400(data.remark)
+    if data.ip_id is None:
+        raise HTTPException(status_code=400, detail="请选择IP")
+    assert_unique_remark(db, remark)
 
-    ip_obj = None
-    if data.ip_id:
-        ip_obj = get_ip_with_usage(db, data.ip_id)
+    ip_obj = get_ip_with_usage(db, data.ip_id)
 
     env = UserScriptEnv(
         config_id=config_id,
+        user_id=config.user_id,
         env_name=generate_env_name(db, config_id),
-        env_value=data.cookie,
+        env_value=cookie,
         ip_id=data.ip_id,
         status=data.status or EnvStatus.VALID.value,
-        remark=data.remark,
+        remark=remark,
     )
     db.add(env)
     db.commit()
     db.refresh(env)
-    recalc_ip_usage(db, {data.ip_id} if data.ip_id else None)
+    recalc_ip_usage(db, {data.ip_id})
 
     # 尝试同步到青龙
     try:
@@ -565,27 +594,28 @@ async def update_env(
     assert_config_permission(current_user, config, db)
     env = get_env_or_404(env_id, config_id, db)
 
-    if data.cookie is not None:
-        env.env_value = data.cookie
-    if data.remark is not None:
-        env.remark = data.remark
+    cookie = normalize_cookie_or_400(data.cookie if data.cookie is not None else env.env_value)
+    remark = normalize_remark_or_400(data.remark if data.remark is not None else env.remark)
+    ip_id = data.ip_id if data.ip_id is not None else env.ip_id
+    if ip_id is None:
+        raise HTTPException(status_code=400, detail="请选择IP")
+    assert_unique_remark(db, remark, exclude_env_id=env.id)
+
+    old_remark = (env.remark or "").strip()
+    if old_remark and remark != old_remark:
+        used_in_earnings = db.query(EarningRecord).filter(EarningRecord.env_id == env.id).first()
+        if used_in_earnings:
+            raise HTTPException(status_code=400, detail="备注已用于收益统计，不能修改")
+
+    env.env_value = cookie
+    env.remark = remark
     if data.status is not None:
         if data.status not in (EnvStatus.VALID.value, EnvStatus.INVALID.value):
             raise HTTPException(status_code=400, detail="状态仅支持 valid/invalid")
         env.status = data.status
-    ip_obj = None
     old_ip_id = env.ip_id
-    if data.ip_id is not None:
-        ip_obj = get_ip_with_usage(db, data.ip_id, exclude_env_id=env.id)
-        env.ip_id = data.ip_id
-    else:
-        # 如果没有传入新的 ip_id，使用现有的 IP 对象（已在 get_env_or_404 中预加载）
-        ip_obj = env.ip if env.ip_id else None
-        # 如果现有 IP 已失效，清除关联
-        if ip_obj and (ip_obj.status != "active" or (ip_obj.expire_date and ip_obj.expire_date < date.today())):
-            logger.warning(f"环境变量 {env_id} 的 IP {ip_obj.id} 已失效，清除关联")
-            env.ip_id = None
-            ip_obj = None
+    ip_obj = get_ip_with_usage(db, ip_id, exclude_env_id=env.id)
+    env.ip_id = ip_id
 
     # 同步到青龙（无论是否已有 ql_env_id）
     try:
@@ -674,6 +704,10 @@ async def delete_env(
     config = get_config_or_404(config_id, db)
     assert_config_permission(current_user, config, db)
     env = get_env_or_404(env_id, config_id, db)
+
+    used_in_earnings = db.query(EarningRecord).filter(EarningRecord.env_id == env.id).first()
+    if used_in_earnings:
+        raise HTTPException(status_code=400, detail="该账号已存在收益记录，不能删除；请改为禁用")
 
     try:
         if env.ql_env_id:

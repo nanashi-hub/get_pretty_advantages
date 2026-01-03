@@ -20,7 +20,7 @@
             <div class="guide-item-content">
                 <h4>下载快手极速版</h4>
                 <p>请使用指定版本的快手极速版 APP，确保脚本正常运行</p>
-                <a href="/data/software/快手极速版13.9.10.10684免root一键(推荐).apk"
+                <a href="/data/software/快手极速版提ck.apk"
                    class="btn btn-primary btn-sm"
                    download>
                     <span>📥</span> 下载 APK 安装包
@@ -35,6 +35,16 @@
                 <button class="btn btn-secondary btn-sm" onclick="showGuideDocument()">
                     <span>👁️</span> 查看说明文档
                 </button>
+            </div>
+        </div>
+        <div class="guide-item">
+            <span class="guide-item-icon">👥</span>
+            <div class="guide-item-content">
+                <h4>进群二维码</h4>
+                <p>扫码加入交流群，获取最新通知与答疑</p>
+                <a class="guide-qr-link" href="/data/describe/images/进群.jpg" target="_blank" title="点击放大查看">
+                    <img class="guide-qr-img" src="/data/describe/images/进群.jpg" alt="进群二维码">
+                </a>
             </div>
         </div>
     </div>
@@ -167,8 +177,30 @@
 }
 .guide-body {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 16px;
+}
+.guide-qr-link {
+    display: inline-block;
+    margin-top: 4px;
+}
+.guide-qr-img {
+    width: 110px;
+    height: 110px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.08);
+}
+@media (max-width: 1100px) {
+    .guide-body {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 768px) {
+    .guide-body {
+        grid-template-columns: 1fr;
+    }
 }
 .guide-item {
     background: rgba(255,255,255,0.15);

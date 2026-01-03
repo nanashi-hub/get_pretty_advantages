@@ -38,13 +38,12 @@
             </div>
             <div class="form-group">
                 <label for="envRemark">备注</label>
-                <input type="text" id="envRemark" placeholder="备注（会同步到青龙值）">
+                <input type="text" id="envRemark" placeholder="备注（会同步到青龙值）" required>
+                <small class="text-muted">备注作为收益统计的唯一标识（必填且唯一）</small>
             </div>
             <div class="form-group">
                 <label for="ipSelect">选择IP</label>
-                <select id="ipSelect">
-                    <option value="">不使用代理</option>
-                </select>
+                <select id="ipSelect" required></select>
                 <small class="text-muted">每个IP最多分配2个变量，容量满后不会出现。</small>
             </div>
             <div class="form-actions">
@@ -147,7 +146,13 @@ async function loadAvailableIPs() {
 
 function renderIPOptions(selectedId = '') {
     const sel = document.getElementById('ipSelect');
-    sel.innerHTML = '<option value="">不使用代理</option>';
+    sel.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '请选择IP';
+    placeholder.disabled = true;
+    placeholder.selected = !selectedId;
+    sel.appendChild(placeholder);
     availableIPs.forEach(ip => {
         const disabled = ip.used >= (ip.max_users || 2);
         if (disabled && String(ip.id) !== String(selectedId)) return;
@@ -277,7 +282,7 @@ function editEnv(envId) {
     document.getElementById('envValue').value = env.env_value;
     document.getElementById('envRemark').value = env.remark || '';
     renderIPOptions(env.ip_id || '');
-    document.getElementById('ipSelect').value = env.ip_id || '';
+    document.getElementById('ipSelect').value = env.ip_id ? String(env.ip_id) : '';
     document.getElementById('autoEnvName').textContent = env.env_name;
 }
 
@@ -289,15 +294,32 @@ async function saveEnv(e) {
     }
     const targetUserId = document.getElementById('userSelect').value;
     const envId = document.getElementById('envId').value;
-    const payload = {
-        cookie: document.getElementById('envValue').value.trim(),
-        remark: document.getElementById('envRemark').value.trim() || null,
-        ip_id: document.getElementById('ipSelect').value || null
-    };
-    if (!payload.cookie) {
+    const cookie = document.getElementById('envValue').value.trim();
+    const remark = document.getElementById('envRemark').value.trim();
+    const ipIdStr = document.getElementById('ipSelect').value;
+
+    if (!cookie) {
         showToast('ksck 不能为空', 'warning');
         return;
     }
+    if (!remark) {
+        showToast('备注不能为空（用于收益统计唯一标识）', 'warning');
+        return;
+    }
+    if (!ipIdStr) {
+        showToast('请选择IP', 'warning');
+        return;
+    }
+    const ipId = Number.parseInt(ipIdStr, 10);
+    if (!Number.isFinite(ipId)) {
+        showToast('IP 选择无效，请重新选择', 'warning');
+        return;
+    }
+    const payload = {
+        cookie,
+        remark,
+        ip_id: ipId
+    };
 
     // 普通用户只能为下级新增，不能为自己新增
     if (!envId && currentUser && currentUser.role === 'normal' && String(targetUserId) === String(currentUser.id)) {

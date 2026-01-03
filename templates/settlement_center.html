@@ -1,0 +1,291 @@
+{% extends "base.html" %}
+
+{% block title %}结算中心 - 快手账号管理平台{% endblock %}
+
+{% block page_title %}结算中心{% endblock %}
+
+{% block content %}
+<div class="data-card">
+    <div class="card-header">
+        <h3>本期结算</h3>
+        <div class="filter-group">
+            <button class="btn btn-secondary btn-sm" onclick="loadSettlementCenter()">刷新</button>
+        </div>
+    </div>
+
+    <div id="settlementEmpty" class="empty-cell" style="display:none;">当前暂无结算期</div>
+
+    <div id="settlementContent" style="display:none;">
+        <div style="margin-bottom: 12px;">
+            <div class="text-muted">统计周期：<span id="settlementPeriodRange">-</span></div>
+            <div class="text-muted">缴费窗口：<span id="settlementPayRange">-</span></div>
+            <div class="text-muted">兑率：<span id="settlementCoinRate">10000</span> coins = 1 元</div>
+        </div>
+
+        <div class="stats-overview">
+            <div class="stat-card">
+                <div class="stat-content">
+                    <span class="stat-value" id="settlementGrossYuan">￥0.00</span>
+                    <span class="stat-label">我的上月总收益（展示）</span>
+                    <span class="text-muted" id="settlementGrossCoins">0 coins</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-content">
+                    <span class="stat-value" id="settlementDueYuan">￥0.00</span>
+                    <span class="stat-label">本期应缴（40%）</span>
+                    <span class="text-muted" id="settlementDueCoins">0 coins</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-content">
+                    <span class="stat-value" id="settlementPaidYuan">￥0.00</span>
+                    <span class="stat-label">已缴</span>
+                    <span class="text-muted" id="settlementPaidCoins">0 coins</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-content">
+                    <span class="stat-value" id="settlementStatusText">-</span>
+                    <span class="stat-label">状态</span>
+                    <span id="settlementStatusBadge">-</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="data-card" id="settlementPayFormCard" style="display:none;">
+    <div class="card-header">
+        <h3>提交缴费</h3>
+        <div class="filter-group">
+            <button class="btn btn-primary btn-sm" onclick="submitSettlementPayment()">提交</button>
+        </div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label>缴费金额（coins）<span class="required">*</span></label>
+            <input type="number" id="paymentAmountCoins" min="1" step="1" placeholder="请输入本次缴费金币数">
+            <small>系统将以 coins 记账；展示时按本期兑率换算人民币。</small>
+        </div>
+        <div class="form-group">
+            <label>缴费方式</label>
+            <select id="paymentMethod">
+                <option value="manual">人工</option>
+                <option value="alipay">支付宝</option>
+                <option value="wechat">微信</option>
+                <option value="bank">银行卡</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-group">
+        <label>凭证链接（可选）</label>
+        <input type="text" id="paymentProofUrl" maxlength="512" placeholder="如有，可填写截图/云盘链接等">
+    </div>
+    <div class="text-muted" id="paymentHint"></div>
+</div>
+
+<div class="data-card">
+    <div class="card-header">
+        <h3>缴费记录</h3>
+    </div>
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>提交时间</th>
+                    <th>金额</th>
+                    <th>方式</th>
+                    <th>状态</th>
+                    <th>凭证</th>
+                    <th>审核时间</th>
+                    <th>驳回原因</th>
+                </tr>
+            </thead>
+            <tbody id="paymentTableBody">
+                <tr><td colspan="8" class="loading-cell">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentPeriodId = null;
+let currentCoinRate = 10000;
+let currentDueCoins = 0;
+let currentPaidCoins = 0;
+let currentPayWindow = null;
+
+function coinsToYuan(coins) {
+    const rate = currentCoinRate > 0 ? currentCoinRate : 10000;
+    return (Number(coins || 0) / rate).toFixed(2);
+}
+
+function formatStatusBadge(type, text) {
+    return `<span class="status-badge status-${type}">${text}</span>`;
+}
+
+function payableStatusLabel(status, today, payEnd) {
+    const s = Number(status);
+    if (s === 2) return { type: 'paid', text: '已缴清' };
+    if (payEnd && today > payEnd) return { type: 'invalid', text: '逾期未缴清' };
+    if (s === 1) return { type: 'pending', text: '部分已缴' };
+    return { type: 'pending', text: '未缴' };
+}
+
+function paymentStatusLabel(status) {
+    const s = Number(status);
+    if (s === 1) return { type: 'paid', text: '已确认' };
+    if (s === 2) return { type: 'invalid', text: '已驳回' };
+    return { type: 'pending', text: '待审核' };
+}
+
+function parseDateOnly(yyyyMmDd) {
+    if (!yyyyMmDd) return null;
+    const parts = String(yyyyMmDd).split('-').map(x => parseInt(x, 10));
+    if (parts.length !== 3 || parts.some(n => Number.isNaN(n))) return null;
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+async function loadSettlementCenter() {
+    const emptyEl = document.getElementById('settlementEmpty');
+    const contentEl = document.getElementById('settlementContent');
+    const payFormEl = document.getElementById('settlementPayFormCard');
+    const tableBody = document.getElementById('paymentTableBody');
+    const hintEl = document.getElementById('paymentHint');
+
+    emptyEl.style.display = 'none';
+    contentEl.style.display = 'none';
+    payFormEl.style.display = 'none';
+    tableBody.innerHTML = '<tr><td colspan="8" class="loading-cell">加载中...</td></tr>';
+    hintEl.textContent = '';
+
+    try {
+        const payload = await apiRequest('/settlement/me');
+        const period = payload.period;
+        const income = payload.income || null;
+        const payable = payload.payable || null;
+        const payments = Array.isArray(payload.payments) ? payload.payments : [];
+
+        if (!period) {
+            currentPeriodId = null;
+            emptyEl.style.display = '';
+            tableBody.innerHTML = '<tr><td colspan="8" class="empty-cell">暂无数据</td></tr>';
+            return;
+        }
+
+        currentPeriodId = Number(period.period_id);
+        currentCoinRate = Number(period.coin_rate || 10000);
+        currentDueCoins = payable ? Number(payable.amount_due_coins || 0) : 0;
+        currentPaidCoins = payable ? Number(payable.amount_paid_coins || 0) : 0;
+        currentPayWindow = { pay_start: period.pay_start, pay_end: period.pay_end };
+
+        document.getElementById('settlementPeriodRange').textContent = `${period.period_start} ~ ${period.period_end}`;
+        document.getElementById('settlementPayRange').textContent = `${period.pay_start} ~ ${period.pay_end}`;
+        document.getElementById('settlementCoinRate').textContent = String(currentCoinRate);
+
+        const grossCoins = income ? Number(income.gross_coins || 0) : 0;
+        document.getElementById('settlementGrossCoins').textContent = `${grossCoins} coins`;
+        document.getElementById('settlementGrossYuan').textContent = `￥${coinsToYuan(grossCoins)}`;
+
+        document.getElementById('settlementDueCoins').textContent = `${currentDueCoins} coins`;
+        document.getElementById('settlementDueYuan').textContent = `￥${coinsToYuan(currentDueCoins)}`;
+
+        document.getElementById('settlementPaidCoins').textContent = `${currentPaidCoins} coins`;
+        document.getElementById('settlementPaidYuan').textContent = `￥${coinsToYuan(currentPaidCoins)}`;
+
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const payEnd = parseDateOnly(period.pay_end);
+        const st = payableStatusLabel(payable ? payable.status : 0, today, payEnd);
+        document.getElementById('settlementStatusText').textContent = st.text;
+        document.getElementById('settlementStatusBadge').innerHTML = formatStatusBadge(st.type, st.text);
+
+        contentEl.style.display = '';
+
+        // 提交缴费区域：仅在有剩余应缴时展示
+        const remaining = Math.max(0, currentDueCoins - currentPaidCoins);
+        const payStart = parseDateOnly(period.pay_start);
+        const inWindow = payStart && payEnd ? (today >= payStart && today <= payEnd) : true;
+
+        if (remaining > 0) {
+            payFormEl.style.display = '';
+            hintEl.textContent = inWindow
+                ? `剩余应缴：${remaining} coins（￥${coinsToYuan(remaining)}）`
+                : `当前不在缴费窗口（${period.pay_start}~${period.pay_end}），提交会被拒绝。`;
+        }
+
+        if (payments.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="8" class="empty-cell">暂无缴费记录</td></tr>';
+            return;
+        }
+
+        tableBody.innerHTML = payments.map(p => {
+            const stp = paymentStatusLabel(p.status);
+            const proof = p.proof_url ? `<a href="${p.proof_url}" target="_blank">查看</a>` : '-';
+            const submittedAt = p.submitted_at ? new Date(p.submitted_at).toLocaleString('zh-CN') : '-';
+            const confirmedAt = p.confirmed_at ? new Date(p.confirmed_at).toLocaleString('zh-CN') : '-';
+            const amountYuan = (Number(p.amount_coins || 0) / (currentCoinRate || 10000)).toFixed(2);
+            return `
+                <tr>
+                    <td>${p.payment_id}</td>
+                    <td>${submittedAt}</td>
+                    <td>${p.amount_coins} coins（￥${amountYuan}）</td>
+                    <td>${p.method || '-'}</td>
+                    <td>${formatStatusBadge(stp.type, stp.text)}</td>
+                    <td>${proof}</td>
+                    <td>${confirmedAt}</td>
+                    <td>${p.reject_reason || '-'}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('加载结算中心失败:', error);
+        document.getElementById('settlementEmpty').style.display = '';
+        document.getElementById('settlementEmpty').textContent = error.message || '加载失败';
+        tableBody.innerHTML = '<tr><td colspan="8" class="error-cell">加载失败</td></tr>';
+    }
+}
+
+async function submitSettlementPayment() {
+    const amount = parseInt(document.getElementById('paymentAmountCoins').value, 10);
+    const method = document.getElementById('paymentMethod').value;
+    const proofUrl = (document.getElementById('paymentProofUrl').value || '').trim() || null;
+
+    if (!currentPeriodId) {
+        showToast('当前无结算期', 'error');
+        return;
+    }
+    if (!amount || amount <= 0) {
+        showToast('请填写有效的缴费金额（coins）', 'error');
+        return;
+    }
+
+    try {
+        await apiRequest('/settlement-payments', {
+            method: 'POST',
+            body: JSON.stringify({
+                period_id: currentPeriodId,
+                amount_coins: amount,
+                method: method,
+                proof_url: proofUrl
+            })
+        });
+        showToast('已提交缴费，等待管理员审核', 'success');
+        document.getElementById('paymentAmountCoins').value = '';
+        document.getElementById('paymentProofUrl').value = '';
+        await loadSettlementCenter();
+    } catch (error) {
+        showToast(error.message || '提交失败', 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadSettlementCenter();
+});
+</script>
+{% endblock %}

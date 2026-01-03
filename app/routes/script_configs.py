@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timedelta
 from app.database import get_db
-from app.models import UserScriptConfig, UserScriptEnv, QLInstance, User, UserRole
+from app.models import UserScriptConfig, UserScriptEnv, QLInstance, User, UserRole, EarningRecord
 from app.schemas import (
     UserScriptConfigCreate, UserScriptConfigUpdate, UserScriptConfigResponse,
     UserScriptEnvCreate, UserScriptEnvUpdate, UserScriptEnvResponse, EnvDisableRequest
@@ -164,6 +164,7 @@ async def create_config_env(
     
     env = UserScriptEnv(
         config_id=config_id,
+        user_id=config.user_id,
         env_name=data.env_name,
         env_value=data.env_value,
         ql_env_id=data.ql_env_id,
@@ -191,6 +192,15 @@ async def batch_save_envs(
     if current_user.role != UserRole.ADMIN and config.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="无权操作此配置")
     
+    existing_env_ids = [
+        int(env_id)
+        for (env_id,) in db.query(UserScriptEnv.id).filter(UserScriptEnv.config_id == config_id).all()
+    ]
+    if existing_env_ids:
+        used_in_earnings = db.query(EarningRecord).filter(EarningRecord.env_id.in_(existing_env_ids)).first()
+        if used_in_earnings:
+            raise HTTPException(status_code=400, detail="该配置下存在收益记录，不能批量覆盖；请改为逐个禁用/新增")
+
     # 删除旧的环境变量
     db.query(UserScriptEnv).filter(UserScriptEnv.config_id == config_id).delete()
     
@@ -198,6 +208,7 @@ async def batch_save_envs(
     for env_data in envs_data:
         env = UserScriptEnv(
             config_id=config_id,
+            user_id=config.user_id,
             env_name=env_data.get('env_name'),
             env_value=env_data.get('env_value'),
             ql_env_id=env_data.get('ql_env_id'),

@@ -1,4 +1,19 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Enum, BigInteger, Text, Date, DECIMAL, ForeignKey, JSON
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    DECIMAL,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
@@ -37,20 +52,6 @@ class RunLogStatus(str, enum.Enum):
     SUCCESS = "success"
     FAIL = "fail"
     PARTIAL = "partial"
-
-
-class SettlementPeriodStatus(str, enum.Enum):
-    """结算周期状态枚举"""
-    OPEN = "open"
-    CLOSED = "closed"
-
-
-class SettlementStatus(str, enum.Enum):
-    """结算状态枚举"""
-    PENDING = "pending"
-    PAID = "paid"
-    CANCELLED = "cancelled"
-
 
 class TransactionType(str, enum.Enum):
     """钱包交易类型枚举"""
@@ -195,6 +196,7 @@ class UserScriptEnv(Base):
 
     id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
     config_id = Column(BigInteger, ForeignKey("user_script_configs.id"), nullable=False, comment="user_script_configs.id")
+    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=True, index=True, comment="归属用户（users.id）")
     env_name = Column(String(100), nullable=False, index=True, comment="环境变量名，例如 KS_COOKIE")
     env_value = Column(Text, nullable=False, comment="变量值，例如 CK")
     ql_env_id = Column(String(100), nullable=True, comment="在青龙中的 env id")
@@ -215,6 +217,7 @@ class UserScriptEnv(Base):
 
     # 关系
     config = relationship("UserScriptConfig", back_populates="envs")
+    user = relationship("User")
     ip = relationship("IPPool")
 
     def __repr__(self):
@@ -249,7 +252,6 @@ class KSAccount(Base):
     # 关系
     user = relationship("User", back_populates="ks_accounts")
     config = relationship("UserScriptConfig")
-    earning_records = relationship("EarningRecord", back_populates="ks_account")
     run_logs = relationship("ScriptRunLog", back_populates="ks_account")
 
     def __repr__(self):
@@ -309,118 +311,262 @@ class EarningRecord(Base):
     """日维度收益表"""
     __tablename__ = "earning_records"
 
-    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
-    ks_account_id = Column(BigInteger, ForeignKey("ks_accounts.id"), nullable=False, comment="对应快手账号")
-    stat_date = Column(Date, nullable=False, comment="统计日期")
-    coins_total = Column(BigInteger, nullable=False, default=0, comment="当天总金币")
-    coins_from_food = Column(BigInteger, nullable=False, default=0)
-    coins_from_look = Column(BigInteger, nullable=False, default=0)
-    coins_from_box = Column(BigInteger, nullable=False, default=0)
-    coins_from_search = Column(BigInteger, nullable=False, default=0)
-    remark = Column(String(255), nullable=True)
+    env_id = Column(
+        BigInteger,
+        ForeignKey("user_script_envs.id"),
+        nullable=False,
+        index=True,
+        comment="FK -> user_script_envs.id",
+    )
+    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=True, index=True, comment="归属用户（users.id）")
+    stat_date = Column(Date, primary_key=True, nullable=False, comment="统计日期（按天）")
+    account_remark = Column(String(255), primary_key=True, nullable=False, comment="当日统计口径账号标识（快照）")
+
+    coins_total = Column(BigInteger, nullable=False, default=0, comment="当日总金币")
+    coins_from_look = Column(BigInteger, nullable=False, default=0, comment="look：看广告得金币")
+    coins_from_lookk = Column(BigInteger, nullable=False, default=0, comment="lookk：看广告得奖励")
+    coins_from_dj = Column(BigInteger, nullable=False, default=0, comment="dj：看短剧广告")
+    coins_from_food = Column(BigInteger, nullable=False, default=0, comment="food：饭补广告")
+    coins_from_box = Column(BigInteger, nullable=False, default=0, comment="box：宝箱广告")
+    coins_from_search = Column(BigInteger, nullable=False, default=0, comment="search：搜索广告")
+
+    record_note = Column(String(255), nullable=True, comment="记录备注（调试/回填说明/来源等）")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    # 关系
-    ks_account = relationship("KSAccount", back_populates="earning_records")
-
     def __repr__(self):
-        return f"<EarningRecord(id={self.id}, ks_account_id={self.ks_account_id}, stat_date={self.stat_date})>"
+        return f"<EarningRecord(env_id={self.env_id}, stat_date={self.stat_date}, account_remark='{self.account_remark}')>"
 
 
 class SettlementPeriod(Base):
-    """结算周期表"""
+    """结算期主表：定义统计区间、缴费窗口与本期规则参数（历史可复算）"""
     __tablename__ = "settlement_periods"
 
-    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
-    period_label = Column(String(50), nullable=False, unique=True, comment="例如 2025W01")
-    start_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=False)
-    status = Column(
-        Enum(SettlementPeriodStatus, values_callable=lambda obj: [e.value for e in obj]),
-        nullable=False,
-        default=SettlementPeriodStatus.OPEN
-    )
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    period_id = Column(BigInteger, primary_key=True, index=True, autoincrement=True, comment="结算期ID（主键，自增）")
+    period_start = Column(Date, nullable=False, comment="收益统计开始日（例如上月1号）")
+    period_end = Column(Date, nullable=False, comment="收益统计结束日（例如上月月末）")
+    pay_start = Column(Date, nullable=False, comment="缴费窗口开始日（例如本月1号）")
+    pay_end = Column(Date, nullable=False, comment="缴费窗口截止日（例如本月10号，含当日）")
 
-    # 关系
-    details = relationship("SettlementDetail", back_populates="period")
+    coin_rate = Column(Integer, nullable=False, default=10000, comment="金币兑人民币比例：coin_rate coins = 1 元")
+    host_bps = Column(Integer, nullable=False, default=6000, comment="号主自留比例（万分比bps），6000=60%")
+    l1_bps = Column(Integer, nullable=False, default=2000, comment="+1 分成比例（bps），2000=20%")
+    l2_bps = Column(Integer, nullable=False, default=400, comment="+2 分成比例（bps），400=4%")
+    collect_bps = Column(Integer, nullable=False, default=4000, comment="号主应缴平台比例（bps），4000=40%")
 
-    def __repr__(self):
-        return f"<SettlementPeriod(id={self.id}, period_label='{self.period_label}')>"
+    status = Column(Integer, nullable=False, default=1, comment="结算期状态：0=OPEN 1=PAYING 2=CLOSED")
 
-
-class SettlementDetail(Base):
-    """结算明细表"""
-    __tablename__ = "settlement_details"
-
-    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
-    period_id = Column(BigInteger, ForeignKey("settlement_periods.id"), nullable=False, comment="settlement_periods.id")
-    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False, comment="号主用户ID")
-    coins_total = Column(BigInteger, nullable=False, default=0, comment="本周期总金币")
-    rate_per_10k = Column(DECIMAL(10, 2), nullable=False, default=1.00, comment="每1万金币兑换金额")
-    amount_total = Column(DECIMAL(10, 2), nullable=False, default=0, comment="应支付总金额")
-    amount_to_user = Column(DECIMAL(10, 2), nullable=False, default=0, comment="支付给号主")
-    amount_to_level1 = Column(DECIMAL(10, 2), nullable=False, default=0, comment="+1 分成金额")
-    amount_to_level2 = Column(DECIMAL(10, 2), nullable=False, default=0, comment="+2 分成金额")
-    status = Column(
-        Enum(SettlementStatus, values_callable=lambda obj: [e.value for e in obj]),
-        nullable=False,
-        default=SettlementStatus.PENDING
-    )
-    settled_at = Column(DateTime(timezone=True), nullable=True, comment="实际结算时间")
-    remark = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    # 关系
-    period = relationship("SettlementPeriod", back_populates="details")
-    user = relationship("User")
+    __table_args__ = (
+        UniqueConstraint("period_start", "period_end", name="uk_period_range"),
+    )
 
     def __repr__(self):
-        return f"<SettlementDetail(id={self.id}, user_id={self.user_id}, coins_total={self.coins_total})>"
+        return f"<SettlementPeriod(period_id={self.period_id}, period_start={self.period_start}, period_end={self.period_end})>"
+
+
+class SettlementReferralSnapshot(Base):
+    """结算关系快照表：冻结每期用户的+1/+2关系，保证历史结算可复算"""
+    __tablename__ = "settlement_referral_snapshot"
+
+    period_id = Column(BigInteger, primary_key=True, comment="结算期ID（settlement_periods.period_id）")
+    user_id = Column(BigInteger, primary_key=True, comment="用户ID（本期被结算的用户）")
+    inviter_level1 = Column(BigInteger, nullable=True, comment="本期快照下的一级上级（+1）user_id")
+    inviter_level2 = Column(BigInteger, nullable=True, comment="本期快照下的二级上级（+2）user_id")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="快照生成时间")
+
+    __table_args__ = (
+        Index("idx_snap_l1", "period_id", "inviter_level1"),
+        Index("idx_snap_l2", "period_id", "inviter_level2"),
+    )
+
+    def __repr__(self):
+        return f"<SettlementReferralSnapshot(period_id={self.period_id}, user_id={self.user_id})>"
+
+
+class SettlementUserIncome(Base):
+    """结算期用户收益汇总表：按期汇总用户总金币及拆分，作为后续应缴/分成/对账事实来源"""
+    __tablename__ = "settlement_user_income"
+
+    period_id = Column(BigInteger, primary_key=True, comment="结算期ID（settlement_periods.period_id）")
+    user_id = Column(BigInteger, primary_key=True, comment="用户ID（本期被结算的用户）")
+
+    gross_coins = Column(BigInteger, nullable=False, default=0, comment="本期统计区间内的总金币")
+    self_keep_coins = Column(BigInteger, nullable=False, default=0, comment="号主自留金币")
+    self_payable_coins = Column(BigInteger, nullable=False, default=0, comment="号主应缴金币")
+
+    l1_user_id = Column(BigInteger, nullable=True, comment="本期快照下的一级上级（+1）user_id")
+    l2_user_id = Column(BigInteger, nullable=True, comment="本期快照下的二级上级（+2）user_id")
+
+    l1_commission_coins = Column(BigInteger, nullable=False, default=0, comment="+1 理论分成金币")
+    l2_commission_coins = Column(BigInteger, nullable=False, default=0, comment="+2 理论分成金币")
+    platform_retain_coins = Column(BigInteger, nullable=False, default=0, comment="平台理论留存金币")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_income_l1", "period_id", "l1_user_id"),
+        Index("idx_income_l2", "period_id", "l2_user_id"),
+    )
+
+    def __repr__(self):
+        return f"<SettlementUserIncome(period_id={self.period_id}, user_id={self.user_id}, gross_coins={self.gross_coins})>"
+
+
+class SettlementUserPayable(Base):
+    """结算期应缴义务表：记录每期每用户应缴金额、累计已缴金额与状态"""
+    __tablename__ = "settlement_user_payable"
+
+    period_id = Column(BigInteger, primary_key=True, comment="结算期ID（settlement_periods.period_id）")
+    user_id = Column(BigInteger, primary_key=True, comment="用户ID（本期应缴义务所属用户）")
+
+    amount_due_coins = Column(BigInteger, nullable=False, default=0, comment="本期应缴金币")
+    amount_paid_coins = Column(BigInteger, nullable=False, default=0, comment="本期累计已缴金币")
+
+    status = Column(Integer, nullable=False, default=0, comment="缴费状态：0=UNPAID 1=PARTIAL 2=PAID 3=OVERDUE")
+    first_paid_at = Column(DateTime(timezone=True), nullable=True, comment="首次产生有效缴费的时间")
+    paid_at = Column(DateTime(timezone=True), nullable=True, comment="缴清时间")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_payable_status", "period_id", "status"),
+    )
+
+    def __repr__(self):
+        return f"<SettlementUserPayable(period_id={self.period_id}, user_id={self.user_id}, due={self.amount_due_coins}, paid={self.amount_paid_coins})>"
+
+
+class SettlementPayment(Base):
+    """缴费记录表：记录每期用户提交的每一笔缴费凭证及审核结果"""
+    __tablename__ = "settlement_payments"
+
+    payment_id = Column(BigInteger, primary_key=True, index=True, autoincrement=True, comment="缴费记录ID（主键，自增）")
+    period_id = Column(BigInteger, nullable=False, comment="结算期ID（settlement_periods.period_id）")
+    payer_user_id = Column(BigInteger, nullable=False, comment="缴费人用户ID（本笔缴费由谁提交）")
+
+    amount_coins = Column(BigInteger, nullable=False, comment="本次缴费金额（coins，整数）")
+    method = Column(String(20), nullable=False, default="manual", comment="缴费方式：manual/alipay/wechat/bank/...")
+    proof_url = Column(String(512), nullable=True, comment="缴费凭证URL")
+
+    status = Column(Integer, nullable=False, default=0, comment="审核状态：0=SUBMITTED 1=CONFIRMED 2=REJECTED")
+
+    submitted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="提交时间")
+    confirmed_at = Column(DateTime(timezone=True), nullable=True, comment="确认时间")
+    confirmed_by = Column(BigInteger, nullable=True, comment="确认人（管理员user_id）")
+    reject_reason = Column(String(255), nullable=True, comment="驳回原因")
+
+    __table_args__ = (
+        Index("idx_payments_period_user", "period_id", "payer_user_id"),
+        Index("idx_payments_status", "period_id", "status"),
+    )
+
+    def __repr__(self):
+        return f"<SettlementPayment(payment_id={self.payment_id}, period_id={self.period_id}, payer_user_id={self.payer_user_id}, status={self.status})>"
+
+
+class SettlementCommission(Base):
+    """分成明细表：按期记录来源用户对上级的分成金额（资金化/解锁状态可追溯）"""
+    __tablename__ = "settlement_commissions"
+
+    period_id = Column(BigInteger, primary_key=True)
+    source_user_id = Column(BigInteger, primary_key=True, comment="谁产生收益")
+    beneficiary_user_id = Column(BigInteger, primary_key=True, comment="谁拿分成（上级）")
+    level = Column(Integer, primary_key=True, comment="1 或 2")
+    amount_coins = Column(BigInteger, nullable=False, comment="分成金额（coins）")
+
+    funding_status = Column(Integer, nullable=False, default=0, comment="0=UNFUNDED(来源未缴费),1=FUNDED")
+    funded_at = Column(DateTime(timezone=True), nullable=True)
+
+    is_unlocked = Column(Integer, nullable=False, default=0, comment="0=锁定,1=已解锁")
+    unlocked_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_comm_beneficiary", "period_id", "beneficiary_user_id", "funding_status", "is_unlocked"),
+        Index("idx_comm_source", "period_id", "source_user_id", "funding_status"),
+    )
+
+    def __repr__(self):
+        return (
+            f"<SettlementCommission(period_id={self.period_id}, source_user_id={self.source_user_id}, "
+            f"beneficiary_user_id={self.beneficiary_user_id}, level={self.level}, amount_coins={self.amount_coins})>"
+        )
 
 
 class WalletAccount(Base):
-    """钱包账户表"""
+    """钱包账户表（coins 账本）"""
     __tablename__ = "wallet_accounts"
 
-    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False, unique=True)
-    balance = Column(DECIMAL(12, 2), nullable=False, default=0, comment="当前余额")
+    user_id = Column(BigInteger, ForeignKey("users.id"), primary_key=True)
+    available_coins = Column(BigInteger, nullable=False, default=0, comment="可用余额（coins）")
+    locked_coins = Column(BigInteger, nullable=False, default=0, comment="锁定余额（coins）")
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # 关系
     user = relationship("User", back_populates="wallet")
-    transactions = relationship("WalletTransaction", back_populates="wallet")
 
     def __repr__(self):
-        return f"<WalletAccount(id={self.id}, user_id={self.user_id}, balance={self.balance})>"
+        return f"<WalletAccount(user_id={self.user_id}, available_coins={self.available_coins}, locked_coins={self.locked_coins})>"
 
 
-class WalletTransaction(Base):
-    """钱包流水表"""
-    __tablename__ = "wallet_transactions"
+class WalletLedger(Base):
+    """钱包账本流水（coins 维度）"""
+    __tablename__ = "wallet_ledger"
 
-    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
-    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
-    wallet_id = Column(BigInteger, ForeignKey("wallet_accounts.id"), nullable=True)
-    amount = Column(DECIMAL(12, 2), nullable=False, comment="正数=入账, 负数=扣款")
-    type = Column(
-        Enum(TransactionType, values_callable=lambda obj: [e.value for e in obj]),
-        nullable=False
-    )
-    ref_id = Column(BigInteger, nullable=True, comment="关联ID")
-    description = Column(String(255), nullable=True)
+    ledger_id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    period_id = Column(BigInteger, nullable=True)
+
+    entry_type = Column(String(40), nullable=False, comment="COMMISSION_LOCKED_IN / COMMISSION_UNLOCK / WITHDRAW_* / ADJUST")
+    delta_available_coins = Column(BigInteger, nullable=False, default=0)
+    delta_locked_coins = Column(BigInteger, nullable=False, default=0)
+
+    ref_source_user_id = Column(BigInteger, nullable=True, comment="关联来源下级 user_id")
+    remark = Column(String(255), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    # 关系
-    wallet = relationship("WalletAccount", back_populates="transactions")
+    __table_args__ = (
+        Index("idx_ledger_user_time", "user_id", "created_at"),
+        Index("idx_ledger_user_period", "user_id", "period_id"),
+    )
+
+    def __repr__(self):
+        return f"<WalletLedger(ledger_id={self.ledger_id}, user_id={self.user_id}, entry_type={self.entry_type})>"
+
+
+class WithdrawRequest(Base):
+    """提现申请表：提现可追踪、可审核、可回滚（余额变更必须走账本）"""
+    __tablename__ = "withdraw_requests"
+
+    withdraw_id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    amount_coins = Column(BigInteger, nullable=False)
+
+    method = Column(String(20), nullable=False, default="manual")
+    account_info = Column(String(255), nullable=True)
+
+    status = Column(Integer, nullable=False, default=0, comment="0=PENDING,1=APPROVED,2=PAID,3=REJECTED,4=CANCELED")
+    requested_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+    processed_by = Column(BigInteger, nullable=True)
+    reject_reason = Column(String(255), nullable=True)
+
+    __table_args__ = (
+        Index("idx_withdraw_user_status", "user_id", "status"),
+        Index("idx_withdraw_time", "requested_at"),
+    )
+
     user = relationship("User")
 
     def __repr__(self):
-        return f"<WalletTransaction(id={self.id}, user_id={self.user_id}, amount={self.amount})>"
+        return f"<WithdrawRequest(withdraw_id={self.withdraw_id}, user_id={self.user_id}, status={self.status})>"
 
 
 # ==================== IP 池 ====================

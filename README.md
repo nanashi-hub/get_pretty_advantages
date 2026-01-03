@@ -1,101 +1,85 @@
-# 用户登录注册管理系统
+# 快手账号管理平台（get_pretty_advantages）
 
-基于FastAPI和MySQL的用户登录注册管理系统。
+基于 FastAPI + MySQL 的快手账号管理平台，提供账号环境配置、收益统计、结算/缴费、分成钱包、提现审核等能力。
 
-## 功能特性
+## 更新日志
 
-- 用户注册（支持邀请码，可选）
-- 用户登录
-- 用户列表查看
-- JWT认证
-- 密码加密存储
-- 管理员账号管理
-- 推广关系管理（+1/+2）
+详见 `CHANGELOG.md`。
 
-## 安装步骤
+## 核心功能
 
-### 方式一：使用Conda（推荐）
+- 用户体系：注册/登录/JWT、首个用户自动成为管理员
+- 推广关系：邀请码绑定 +1/+2，上下级链路管理
+- 账号环境：配置脚本环境（含备注/代理 IP 等）
+- 收益统计：按周期查询与展示（以日收益汇总为基础）
+- 结算中心（阶段 1）：结算期、关系快照、收益汇总、应缴、缴费记录、管理员审核
+- 分成钱包（阶段 2）：分成明细、下级缴清后资金化入账（locked）、钱包账本流水
+- 解锁/提现（阶段 3）：上级缴清后解锁（locked -> available），用户提现申请/取消、管理员审核/打款/驳回（支持回滚）
 
-1. 创建conda虚拟环境：
+## 快速开始（Docker，推荐）
+
+1) 准备 MySQL（建议单独容器或宿主机），创建库（示例）：
+
+```sql
+CREATE DATABASE get_pretty_advantages DEFAULT CHARACTER SET utf8mb4;
+```
+
+2) 配置 `DATABASE_URL`（推荐使用 `.env` 或 CI/容器环境变量注入），示例：
+
 ```bash
-# 使用环境配置文件创建（推荐）
-conda env create -f environment.yml
+DATABASE_URL=mysql+pymysql://root:password@127.0.0.1:3306/get_pretty_advantages?charset=utf8mb4
+ADMIN_SECRET=ADMIN_SECRET_KEY_2024
+```
 
-# 或者手动创建
-# 在项目根目录执行
-conda create -p .venv python=3.10 -y
-conda activate .venv
+3) 启动：
+
+```bash
+docker compose up -d --build
+```
+
+4) 访问：
+
+- Web：`http://localhost:1212`
+
+## 本地开发（非 Docker）
+
+```bash
 pip install -r requirements.txt
+uvicorn app.main:app --reload --port 1212
 ```
 
-2. 激活环境：
-```bash
-conda activate user_registration
-```
+## 关键环境变量
 
-3. 配置MySQL数据库：
-   - 在 `app/database.py` 中修改数据库连接信息
-   - 确保MySQL服务已启动
+- `DATABASE_URL`：MySQL 连接串（必配，建议不要把真实账号密码提交到 GitHub）
+- `ADMIN_SECRET`：创建管理员账号 API 的密钥（默认 `ADMIN_SECRET_KEY_2024`）
+- `ALLOW_MULTIPLE_ADMINS`：是否允许多个管理员（默认 `false`）
+- 日志：
+  - `LOG_LEVEL`、`LOG_DIR`、`LOG_MAX_BYTES`、`LOG_BACKUP_COUNT`
 
-4. 运行应用：
-```bash
-# 方式1：直接运行
-uvicorn app.main:app --reload
+## 管理员创建
 
-# 方式2：使用提供的批处理文件（Windows）
-run.bat
-```
-
-5. 访问应用：
-   - 打开浏览器访问 `http://localhost:8000`（或你配置的端口）
-
-## 管理员账号创建
-
-### 方式一：首次注册自动成为管理员（推荐）
-
-**第一个注册的用户会自动成为管理员**，无需特殊操作。
-
-### 方式二：使用脚本创建管理员
+- 方式 1：首个注册用户自动成为管理员（推荐）
+- 方式 2：API 创建管理员（需要 `ADMIN_SECRET`）：
 
 ```bash
-python create_admin.py
-```
-
-按照提示输入管理员信息即可。
-
-### 方式三：通过API创建管理员
-
-```bash
-curl -X POST "http://localhost:8000/api/admin/create-admin?admin_secret=ADMIN_SECRET_KEY_2024" \
+curl -X POST "http://localhost:1212/api/admin/create-admin?admin_secret=ADMIN_SECRET_KEY_2024" \
   -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin",
-    "password": "admin123",
-    "nickname": "管理员"
-  }'
+  -d "{\"username\":\"admin\",\"password\":\"admin123\",\"nickname\":\"管理员\"}"
 ```
 
-**注意**：默认管理员密钥是 `ADMIN_SECRET_KEY_2024`，可以通过环境变量 `ADMIN_SECRET` 修改。
+## 常用页面入口
 
-## 常见问题
+- 仪表板：`/dashboard`
+- 配置环境：`/config-envs`
+- 收益统计：`/earnings`
+- 结算中心：`/settlement-center`
+- 我的钱包：`/wallet`
+- 管理端：`/admin/settlement-payments`、`/admin/withdraw-requests`
 
-### 1. 没有邀请码可以注册吗？
+## 内置资料（/data）
 
-**可以！** 邀请码是完全可选的。不填写邀请码也可以正常注册，只是不会建立推广关系。
+应用会挂载 `/data` 静态目录，仪表板「新手入门指南」使用以下资源：
 
-### 2. 如何成为管理员？
-
-- **最简单**：第一个注册的用户自动成为管理员
-- **使用脚本**：运行 `python create_admin.py`
-- **通过API**：使用管理员密钥调用创建管理员接口
-
-### 3. 如何修改管理员密钥？
-
-设置环境变量：
-```bash
-# Windows
-set ADMIN_SECRET=你的密钥
-
-# Linux/Mac
-export ADMIN_SECRET=你的密钥
-```
+- APK 下载：`/data/software/快手极速版提ck.apk`
+- 新手说明：`data/describe/新手搭建说明.md`（前端通过 `/api/guide/content` 展示）
+- 进群二维码：`/data/describe/images/进群.jpg`

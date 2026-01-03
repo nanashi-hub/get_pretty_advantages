@@ -15,6 +15,7 @@ from app.routes import (
     earnings,
     settlements,
     wallet,
+    withdrawals,
     referrals,
     stats,
     config_envs,
@@ -139,6 +140,7 @@ app.include_router(script_configs.router)
 app.include_router(earnings.router)
 app.include_router(settlements.router)
 app.include_router(wallet.router)
+app.include_router(withdrawals.router)
 app.include_router(referrals.router)
 app.include_router(stats.router)
 app.include_router(config_envs.router)
@@ -196,10 +198,13 @@ async def earnings_page(request: Request):
     return templates.TemplateResponse("earnings.html", {"request": request, "active_page": "earnings"})
 
 
-@app.get("/settlements", response_class=HTMLResponse)
-async def settlements_page(request: Request):
-    """结算管理页面"""
-    return templates.TemplateResponse("settlements.html", {"request": request, "active_page": "settlements"})
+@app.get("/settlement-center", response_class=HTMLResponse)
+async def settlement_center_page(request: Request):
+    """结算中心页面"""
+    return templates.TemplateResponse(
+        "settlement_center.html",
+        {"request": request, "active_page": "settlement_center"},
+    )
 
 
 @app.get("/wallet", response_class=HTMLResponse)
@@ -419,6 +424,24 @@ async def admin_recharge_page(request: Request):
 async def admin_alipay_config_page(request: Request):
     """支付宝配置管理页面（管理员）"""
     return templates.TemplateResponse("admin_alipay_config.html", {"request": request, "active_page": "alipay_config"})
+
+
+@app.get("/admin/settlement-payments", response_class=HTMLResponse)
+async def admin_settlement_payments_page(request: Request):
+    """缴费审核页面（管理员）"""
+    return templates.TemplateResponse(
+        "admin_settlement_payments.html",
+        {"request": request, "active_page": "settlement_payments"},
+    )
+
+
+@app.get("/admin/withdraw-requests", response_class=HTMLResponse)
+async def admin_withdraw_requests_page(request: Request):
+    """提现审核页面（管理员）"""
+    return templates.TemplateResponse(
+        "admin_withdraw_requests.html",
+        {"request": request, "active_page": "withdraw_requests"},
+    )
 
 
 if __name__ == "__main__":

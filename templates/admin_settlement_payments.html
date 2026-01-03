@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+
+{% block title %}缴费审核 - 快手账号管理平台{% endblock %}
+
+{% block page_title %}缴费审核{% endblock %}
+
+{% block content %}
+<div class="data-card">
+    <div class="card-header">
+        <h3>结算期管理（管理员）</h3>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label>统计开始日<span class="required">*</span></label>
+            <input type="date" id="periodStart">
+        </div>
+        <div class="form-group">
+            <label>统计结束日<span class="required">*</span></label>
+            <input type="date" id="periodEnd">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label>缴费开始日<span class="required">*</span></label>
+            <input type="date" id="payStart">
+        </div>
+        <div class="form-group">
+            <label>缴费截止日<span class="required">*</span></label>
+            <input type="date" id="payEnd">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label>coin_rate（coins=1元）</label>
+            <input type="number" id="coinRate" min="1" step="1" value="10000">
+        </div>
+        <div class="form-group">
+            <label>状态</label>
+            <select id="periodStatus">
+                <option value="0">OPEN</option>
+                <option value="1">PAYING</option>
+                <option value="2">CLOSED</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label>host_bps（号主自留）</label>
+            <input type="number" id="hostBps" min="0" max="10000" step="1" value="6000">
+        </div>
+        <div class="form-group">
+            <label>collect_bps（应缴平台）</label>
+            <input type="number" id="collectBps" min="0" max="10000" step="1" value="4000">
+        </div>
+    </div>
+    <div class="form-row">
+        <div class="form-group">
+            <label>l1_bps（+1分成）</label>
+            <input type="number" id="l1Bps" min="0" max="10000" step="1" value="2000">
+        </div>
+        <div class="form-group">
+            <label>l2_bps（+2分成）</label>
+            <input type="number" id="l2Bps" min="0" max="10000" step="1" value="400">
+        </div>
+    </div>
+
+    <div style="display:flex; gap:10px; align-items:center; margin-top: 10px;">
+        <button class="btn btn-primary" onclick="createPeriod()">创建结算期</button>
+        <span class="text-muted">说明：创建后需要点击该期的“生成”按钮写入快照/汇总/应缴。</span>
+    </div>
+
+    <div class="table-responsive" style="margin-top: 16px;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>period_id</th>
+                    <th>统计周期</th>
+                    <th>缴费窗口</th>
+                    <th>coin_rate</th>
+                    <th>bps</th>
+                    <th>status</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="periodTableBody">
+                <tr><td colspan="7" class="loading-cell">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="data-card">
+    <div class="card-header">
+        <h3>缴费记录审核</h3>
+        <div class="filter-group" style="display:flex; gap:8px;">
+            <select id="paymentPeriodFilter" onchange="loadPayments()">
+                <option value="">全部结算期</option>
+            </select>
+            <select id="paymentStatusFilter" onchange="loadPayments()">
+                <option value="">全部状态</option>
+                <option value="0">待审核</option>
+                <option value="1">已确认</option>
+                <option value="2">已驳回</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="loadPayments()">刷新</button>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>period_id</th>
+                    <th>payer_user_id</th>
+                    <th>金额</th>
+                    <th>方式</th>
+                    <th>凭证</th>
+                    <th>提交时间</th>
+                    <th>状态</th>
+                    <th>审核时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="paymentAuditTableBody">
+                <tr><td colspan="10" class="loading-cell">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function formatStatusBadge(type, text) {
+    return `<span class="status-badge status-${type}">${text}</span>`;
+}
+
+function paymentStatusLabel(status) {
+    const s = Number(status);
+    if (s === 1) return { type: 'paid', text: '已确认' };
+    if (s === 2) return { type: 'invalid', text: '已驳回' };
+    return { type: 'pending', text: '待审核' };
+}
+
+function periodStatusLabel(status) {
+    const s = Number(status);
+    if (s === 2) return { type: 'closed', text: 'CLOSED' };
+    if (s === 1) return { type: 'pending', text: 'PAYING' };
+    return { type: 'open', text: 'OPEN' };
+}
+
+async function loadPeriods() {
+    const body = document.getElementById('periodTableBody');
+    const periodFilter = document.getElementById('paymentPeriodFilter');
+    body.innerHTML = '<tr><td colspan="7" class="loading-cell">加载中...</td></tr>';
+    periodFilter.innerHTML = '<option value=\"\">全部结算期</option>';
+
+    try {
+        const periods = await apiRequest('/settlement-periods');
+        if (!Array.isArray(periods) || periods.length === 0) {
+            body.innerHTML = '<tr><td colspan="7" class="empty-cell">暂无结算期</td></tr>';
+            return;
+        }
+
+        periods.forEach(p => {
+            const opt = document.createElement('option');
+            opt.value = String(p.period_id);
+            opt.textContent = `${p.period_id}（${p.period_start}~${p.period_end}）`;
+            periodFilter.appendChild(opt);
+        });
+
+        body.innerHTML = periods.map(p => {
+            const st = periodStatusLabel(p.status);
+            const bps = `host:${p.host_bps} / collect:${p.collect_bps} / l1:${p.l1_bps} / l2:${p.l2_bps}`;
+            return `
+                <tr>
+                    <td>${p.period_id}</td>
+                    <td>${p.period_start} ~ ${p.period_end}</td>
+                    <td>${p.pay_start} ~ ${p.pay_end}</td>
+                    <td>${p.coin_rate}</td>
+                    <td>${bps}</td>
+                    <td>${formatStatusBadge(st.type, st.text)}</td>
+                     <td class="action-cell">
+                         <button class="btn btn-primary btn-sm" onclick="generatePeriod(${p.period_id}, false)">生成</button>
+                         <button class="btn btn-secondary btn-sm" onclick="generatePeriod(${p.period_id}, true)">重跑</button>
+                         <button class="btn btn-secondary btn-sm" onclick="generateCommissions(${p.period_id})">补分成</button>
+                         <button class="btn btn-secondary btn-sm" onclick="unlockCommissions(${p.period_id})">解锁分成</button>
+                     </td>
+                 </tr>
+             `;
+         }).join('');
+    } catch (error) {
+        body.innerHTML = `<tr><td colspan="7" class="error-cell">${error.message || '加载失败'}</td></tr>`;
+    }
+}
+
+async function createPeriod() {
+    const periodStart = document.getElementById('periodStart').value;
+    const periodEnd = document.getElementById('periodEnd').value;
+    const payStart = document.getElementById('payStart').value;
+    const payEnd = document.getElementById('payEnd').value;
+
+    if (!periodStart || !periodEnd || !payStart || !payEnd) {
+        showToast('请填写完整日期', 'error');
+        return;
+    }
+
+    const payload = {
+        period_start: periodStart,
+        period_end: periodEnd,
+        pay_start: payStart,
+        pay_end: payEnd,
+        coin_rate: Number(document.getElementById('coinRate').value || 10000),
+        host_bps: Number(document.getElementById('hostBps').value || 6000),
+        l1_bps: Number(document.getElementById('l1Bps').value || 2000),
+        l2_bps: Number(document.getElementById('l2Bps').value || 400),
+        collect_bps: Number(document.getElementById('collectBps').value || 4000),
+        status: Number(document.getElementById('periodStatus').value || 0)
+    };
+
+    try {
+        await apiRequest('/settlement-periods', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        showToast('结算期已创建/已存在', 'success');
+        await loadPeriods();
+    } catch (error) {
+        showToast(error.message || '创建失败', 'error');
+    }
+}
+
+async function generatePeriod(periodId, regenerate) {
+    if (regenerate) {
+        const ok = confirm('重跑会清空该期的快照/汇总/应缴数据（已存在缴费记录将被阻止）。确认继续？');
+        if (!ok) return;
+    }
+
+    try {
+        const url = `/settlement-periods/${periodId}/generate?regenerate=${regenerate ? 'true' : 'false'}`;
+        await apiRequest(url, { method: 'POST' });
+        showToast('生成成功', 'success');
+    } catch (error) {
+        showToast(error.message || '生成失败', 'error');
+    }
+}
+
+async function generateCommissions(periodId) {
+    try {
+        await apiRequest(`/settlement-periods/${periodId}/generate-commissions`, { method: 'POST' });
+        showToast('已补生成分成明细', 'success');
+    } catch (error) {
+        showToast(error.message || '补生成失败', 'error');
+    }
+}
+
+async function unlockCommissions(periodId) {
+    try {
+        const res = await apiRequest(`/settlement-periods/${periodId}/unlock-commissions`, { method: 'POST' });
+        const unlockedUsers = res && typeof res.unlocked_users !== 'undefined' ? Number(res.unlocked_users || 0) : 0;
+        const unlockedCoins = res && typeof res.unlocked_total_coins !== 'undefined' ? Number(res.unlocked_total_coins || 0) : 0;
+        showToast(`已执行解锁：${unlockedUsers} 人，${unlockedCoins} coins`, 'success');
+    } catch (error) {
+        showToast(error.message || '解锁失败', 'error');
+    }
+}
+
+async function loadPayments() {
+    const body = document.getElementById('paymentAuditTableBody');
+    const periodId = document.getElementById('paymentPeriodFilter').value;
+    const statusVal = document.getElementById('paymentStatusFilter').value;
+
+    body.innerHTML = '<tr><td colspan="10" class="loading-cell">加载中...</td></tr>';
+
+    const params = new URLSearchParams();
+    if (periodId) params.set('period_id', periodId);
+    if (statusVal !== '') params.set('status', statusVal);
+
+    try {
+        const url = params.toString() ? `/settlement-payments?${params.toString()}` : '/settlement-payments';
+        const payments = await apiRequest(url);
+        if (!Array.isArray(payments) || payments.length === 0) {
+            body.innerHTML = '<tr><td colspan="10" class="empty-cell">暂无记录</td></tr>';
+            return;
+        }
+
+        body.innerHTML = payments.map(p => {
+            const st = paymentStatusLabel(p.status);
+            const submittedAt = p.submitted_at ? new Date(p.submitted_at).toLocaleString('zh-CN') : '-';
+            const confirmedAt = p.confirmed_at ? new Date(p.confirmed_at).toLocaleString('zh-CN') : '-';
+            const proof = p.proof_url ? `<a href="${p.proof_url}" target="_blank">查看</a>` : '-';
+            const action = Number(p.status) === 0
+                ? `
+                    <button class="btn btn-primary btn-sm" onclick="confirmPayment(${p.payment_id})">确认</button>
+                    <button class="btn btn-secondary btn-sm" onclick="rejectPayment(${p.payment_id})">驳回</button>
+                  `
+                : '-';
+            return `
+                <tr>
+                    <td>${p.payment_id}</td>
+                    <td>${p.period_id}</td>
+                    <td>${p.payer_user_id}</td>
+                    <td>${p.amount_coins} coins</td>
+                    <td>${p.method || '-'}</td>
+                    <td>${proof}</td>
+                    <td>${submittedAt}</td>
+                    <td>${formatStatusBadge(st.type, st.text)}</td>
+                    <td>${confirmedAt}</td>
+                    <td class="action-cell">${action}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        body.innerHTML = `<tr><td colspan="10" class="error-cell">${error.message || '加载失败'}</td></tr>`;
+    }
+}
+
+async function confirmPayment(paymentId) {
+    const ok = confirm('确认该缴费记录？确认后将计入已缴并更新状态。');
+    if (!ok) return;
+    try {
+        await apiRequest(`/settlement-payments/${paymentId}/confirm`, { method: 'POST' });
+        showToast('已确认', 'success');
+        await loadPayments();
+    } catch (error) {
+        showToast(error.message || '操作失败', 'error');
+    }
+}
+
+async function rejectPayment(paymentId) {
+    const reason = prompt('请输入驳回原因（必填）：');
+    if (!reason || !reason.trim()) return;
+    try {
+        await apiRequest(`/settlement-payments/${paymentId}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ reject_reason: reason.trim() })
+        });
+        showToast('已驳回', 'success');
+        await loadPayments();
+    } catch (error) {
+        showToast(error.message || '操作失败', 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async function() {
+    await loadPeriods();
+    await loadPayments();
+});
+</script>
+{% endblock %}

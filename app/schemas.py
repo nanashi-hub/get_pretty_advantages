@@ -4,7 +4,7 @@ from typing import Optional, List
 from decimal import Decimal
 from app.models import (
     UserRole, ConfigStatus, EnvStatus, KSAccountStatus,
-    RunLogStatus, SettlementPeriodStatus, SettlementStatus, TransactionType
+    RunLogStatus, TransactionType
 )
 
 
@@ -373,37 +373,45 @@ class ScriptRunLogResponse(BaseModel):
 
 class EarningRecordCreate(BaseModel):
     """创建收益记录"""
-    ks_account_id: int
-    stat_date: date
+    env_id: int = Field(..., description="账号实体ID（user_script_envs.id）")
+    stat_date: date = Field(..., description="统计日期（按天）")
+    account_remark: Optional[str] = Field(None, max_length=255, description="当日统计口径账号标识（快照）")
     coins_total: int = 0
-    coins_from_food: int = 0
     coins_from_look: int = 0
+    coins_from_lookk: int = 0
+    coins_from_dj: int = 0
+    coins_from_food: int = 0
     coins_from_box: int = 0
     coins_from_search: int = 0
-    remark: Optional[str] = Field(None, max_length=255)
+    record_note: Optional[str] = Field(None, max_length=255, description="记录备注（调试/回填说明/来源等）")
 
 
 class EarningRecordUpdate(BaseModel):
     """更新收益记录"""
     coins_total: Optional[int] = None
-    coins_from_food: Optional[int] = None
     coins_from_look: Optional[int] = None
+    coins_from_lookk: Optional[int] = None
+    coins_from_dj: Optional[int] = None
+    coins_from_food: Optional[int] = None
     coins_from_box: Optional[int] = None
     coins_from_search: Optional[int] = None
-    remark: Optional[str] = Field(None, max_length=255)
+    record_note: Optional[str] = Field(None, max_length=255)
 
 
 class EarningRecordResponse(BaseModel):
     """收益记录响应"""
-    id: int
-    ks_account_id: int
+    env_id: int
+    user_id: Optional[int] = None
     stat_date: date
+    account_remark: str
     coins_total: int
-    coins_from_food: int
     coins_from_look: int
+    coins_from_lookk: int
+    coins_from_dj: int
+    coins_from_food: int
     coins_from_box: int
     coins_from_search: int
-    remark: Optional[str] = None
+    record_note: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -411,120 +419,193 @@ class EarningRecordResponse(BaseModel):
         from_attributes = True
 
 
-# ==================== 结算周期相关 ====================
+# ==================== 结算（阶段1）相关 ====================
 
 class SettlementPeriodCreate(BaseModel):
-    """创建结算周期"""
-    period_label: str = Field(..., max_length=50, description="例如 2025W01")
-    start_date: date
-    end_date: date
-    status: str = Field("open")
+    """创建结算期（管理员）"""
+    period_start: date
+    period_end: date
+    pay_start: date
+    pay_end: date
 
+    coin_rate: int = Field(10000, ge=1, description="coin_rate coins = 1 元")
+    host_bps: int = Field(6000, ge=0, le=10000)
+    l1_bps: int = Field(2000, ge=0, le=10000)
+    l2_bps: int = Field(400, ge=0, le=10000)
+    collect_bps: int = Field(4000, ge=0, le=10000)
 
-class SettlementPeriodUpdate(BaseModel):
-    """更新结算周期"""
-    period_label: Optional[str] = Field(None, max_length=50)
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    status: Optional[str] = None
+    status: int = Field(0, ge=0, le=2, description="0=OPEN 1=PAYING 2=CLOSED")
 
 
 class SettlementPeriodResponse(BaseModel):
-    """结算周期响应"""
-    id: int
-    period_label: str
-    start_date: date
-    end_date: date
-    status: str
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-# ==================== 结算明细相关 ====================
-
-class SettlementDetailCreate(BaseModel):
-    """创建结算明细"""
+    """结算期响应"""
     period_id: int
-    user_id: int
-    coins_total: int = 0
-    rate_per_10k: float = 1.00
-    amount_total: float = 0
-    amount_to_user: float = 0
-    amount_to_level1: float = 0
-    amount_to_level2: float = 0
-    status: str = Field("pending")
-    remark: Optional[str] = Field(None, max_length=255)
-
-
-class SettlementDetailUpdate(BaseModel):
-    """更新结算明细"""
-    coins_total: Optional[int] = None
-    rate_per_10k: Optional[float] = None
-    amount_total: Optional[float] = None
-    amount_to_user: Optional[float] = None
-    amount_to_level1: Optional[float] = None
-    amount_to_level2: Optional[float] = None
-    status: Optional[str] = None
-    settled_at: Optional[datetime] = None
-    remark: Optional[str] = Field(None, max_length=255)
-
-
-class SettlementDetailResponse(BaseModel):
-    """结算明细响应"""
-    id: int
-    period_id: int
-    user_id: int
-    coins_total: int
-    rate_per_10k: float
-    amount_total: float
-    amount_to_user: float
-    amount_to_level1: float
-    amount_to_level2: float
-    status: str
-    settled_at: Optional[datetime] = None
-    remark: Optional[str] = None
+    period_start: date
+    period_end: date
+    pay_start: date
+    pay_end: date
+    coin_rate: int
+    host_bps: int
+    l1_bps: int
+    l2_bps: int
+    collect_bps: int
+    status: int
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
+
+
+class SettlementUserIncomeResponse(BaseModel):
+    """结算期用户收益汇总响应"""
+    period_id: int
+    user_id: int
+    gross_coins: int
+    self_keep_coins: int
+    self_payable_coins: int
+    l1_user_id: Optional[int] = None
+    l2_user_id: Optional[int] = None
+    l1_commission_coins: int
+    l2_commission_coins: int
+    platform_retain_coins: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SettlementUserPayableResponse(BaseModel):
+    """结算期应缴义务响应"""
+    period_id: int
+    user_id: int
+    amount_due_coins: int
+    amount_paid_coins: int
+    status: int
+    first_paid_at: Optional[datetime] = None
+    paid_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SettlementPaymentCreate(BaseModel):
+    """提交缴费（用户）"""
+    period_id: Optional[int] = Field(None, description="为空则提交到当前结算期")
+    amount_coins: int = Field(..., ge=1, description="本次缴费金额（coins，整数）")
+    method: str = Field("manual", max_length=20)
+    proof_url: Optional[str] = Field(None, max_length=512)
+
+
+class SettlementPaymentReject(BaseModel):
+    """驳回缴费（管理员）"""
+    reject_reason: str = Field(..., max_length=255)
+
+
+class SettlementPaymentResponse(BaseModel):
+    """缴费记录响应"""
+    payment_id: int
+    period_id: int
+    payer_user_id: int
+    amount_coins: int
+    method: str
+    proof_url: Optional[str] = None
+    status: int
+    submitted_at: datetime
+    confirmed_at: Optional[datetime] = None
+    confirmed_by: Optional[int] = None
+    reject_reason: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class SettlementMeResponse(BaseModel):
+    """结算中心（用户视角）聚合响应"""
+    period: Optional[SettlementPeriodResponse] = None
+    income: Optional[SettlementUserIncomeResponse] = None
+    payable: Optional[SettlementUserPayableResponse] = None
+    payments: List[SettlementPaymentResponse] = []
 
 
 # ==================== 钱包相关 ====================
 
 class WalletAccountResponse(BaseModel):
     """钱包账户响应"""
-    id: int
     user_id: int
-    balance: float
+    available_coins: int
+    locked_coins: int
     updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class WalletLedgerEntryResponse(BaseModel):
+    """钱包账本流水响应"""
+    ledger_id: int
+    user_id: int
+    period_id: Optional[int] = None
+    entry_type: str
+    delta_available_coins: int
+    delta_locked_coins: int
+    ref_source_user_id: Optional[int] = None
+    remark: Optional[str] = None
     created_at: datetime
 
     class Config:
         from_attributes = True
 
 
-class WalletTransactionCreate(BaseModel):
-    """创建钱包交易"""
-    user_id: int
-    amount: float
-    type: str
-    ref_id: Optional[int] = None
-    description: Optional[str] = Field(None, max_length=255)
+class WalletDownlineDueSummary(BaseModel):
+    """下级待缴汇总"""
+    cnt: int = 0
+    sum_due_coins: int = 0
 
 
-class WalletTransactionResponse(BaseModel):
-    """钱包交易响应"""
-    id: int
+class WalletSummaryResponse(BaseModel):
+    """我的钱包汇总（用于钱包页）"""
+    coin_rate: int = 10000
+    wallet: WalletAccountResponse
+    period: Optional[SettlementPeriodResponse] = None
+    my_payable: Optional[SettlementUserPayableResponse] = None
+    my_remaining_due_coins: int = 0
+    l1_due: WalletDownlineDueSummary = WalletDownlineDueSummary()
+    l2_due: WalletDownlineDueSummary = WalletDownlineDueSummary()
+    commission_expected_coins: int = 0
+    commission_funded_locked_coins: int = 0
+    commission_unfunded_coins: int = 0
+
+
+# ==================== 提现相关 ====================
+
+class WithdrawRequestCreate(BaseModel):
+    """提现申请"""
+    amount_coins: int = Field(..., gt=0, description="提现金额（coins）")
+    method: str = Field("manual", max_length=20, description="提现方式：manual/alipay/wechat/bank/...")
+    account_info: Optional[str] = Field(None, max_length=255, description="收款信息（建议脱敏存储）")
+
+
+class WithdrawRequestReject(BaseModel):
+    """提现驳回原因"""
+    reject_reason: str = Field(..., min_length=1, max_length=255)
+
+
+class WithdrawRequestResponse(BaseModel):
+    """提现申请响应"""
+    withdraw_id: int
     user_id: int
-    wallet_id: Optional[int] = None
-    amount: float
-    type: str
-    ref_id: Optional[int] = None
-    description: Optional[str] = None
-    created_at: datetime
+    amount_coins: int
+    method: str
+    account_info: Optional[str] = None
+    status: int
+    requested_at: datetime
+    processed_at: Optional[datetime] = None
+    processed_by: Optional[int] = None
+    reject_reason: Optional[str] = None
 
     class Config:
         from_attributes = True

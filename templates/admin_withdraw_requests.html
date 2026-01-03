@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}提现审核 - 快手账号管理平台{% endblock %}
+
+{% block page_title %}提现审核{% endblock %}
+
+{% block content %}
+<div class="data-card">
+    <div class="card-header">
+        <h3>提现申请审核</h3>
+        <div class="filter-group" style="display:flex; gap:8px; align-items:center;">
+            <select id="withdrawStatusFilter" onchange="loadWithdrawRequests()">
+                <option value="">全部状态</option>
+                <option value="0">待审核</option>
+                <option value="1">已通过</option>
+                <option value="2">已打款</option>
+                <option value="3">已驳回</option>
+                <option value="4">已取消</option>
+            </select>
+            <input type="number" id="withdrawUserIdFilter" placeholder="user_id(可选)" style="width: 140px;">
+            <button class="btn btn-secondary btn-sm" onclick="loadWithdrawRequests()">刷新</button>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>user_id</th>
+                    <th>金额</th>
+                    <th>方式</th>
+                    <th>收款信息</th>
+                    <th>状态</th>
+                    <th>申请时间</th>
+                    <th>处理时间</th>
+                    <th>处理人</th>
+                    <th>驳回原因</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="withdrawTableBody">
+                <tr><td colspan="11" class="loading-cell">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+function formatStatusBadge(type, text) {
+    const colors = {
+        success: '#10b981',
+        warning: '#f59e0b',
+        danger: '#ef4444',
+        info: '#3b82f6',
+        default: '#6b7280'
+    };
+    const color = colors[type] || colors.default;
+    return `<span style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; background:${color}20; color:${color};">${text}</span>`;
+}
+
+function escapeHtml(value) {
+    const s = String(value ?? '');
+    return s.replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[ch]));
+}
+
+function coinsToYuan(coins, coinRate = 10000) {
+    const c = Number(coins || 0);
+    const r = Number(coinRate || 10000);
+    if (r <= 0) return '0.00';
+    return (c / r).toFixed(2);
+}
+
+function withdrawStatusLabel(status) {
+    const s = Number(status || 0);
+    if (s === 0) return { text: '待审核', type: 'warning' };
+    if (s === 1) return { text: '已通过', type: 'info' };
+    if (s === 2) return { text: '已打款', type: 'success' };
+    if (s === 3) return { text: '已驳回', type: 'danger' };
+    if (s === 4) return { text: '已取消', type: 'default' };
+    return { text: `未知(${s})`, type: 'default' };
+}
+
+async function loadWithdrawRequests() {
+    const body = document.getElementById('withdrawTableBody');
+    body.innerHTML = '<tr><td colspan="11" class="loading-cell">加载中...</td></tr>';
+
+    const statusVal = document.getElementById('withdrawStatusFilter').value;
+    const userIdVal = document.getElementById('withdrawUserIdFilter').value;
+
+    const params = new URLSearchParams();
+    if (statusVal !== '') params.set('status', statusVal);
+    if (userIdVal !== '') params.set('user_id', userIdVal);
+    params.set('limit', '200');
+
+    try {
+        const rows = await apiRequest(`/withdraw-requests?${params.toString()}`);
+        if (!Array.isArray(rows) || rows.length === 0) {
+            body.innerHTML = '<tr><td colspan="11" class="empty-cell">暂无记录</td></tr>';
+            return;
+        }
+
+        body.innerHTML = rows.map(r => {
+            const st = withdrawStatusLabel(r.status);
+            const amountCoins = Number(r.amount_coins || 0);
+            const amountText = `${amountCoins} coins (≈ ¥${coinsToYuan(amountCoins)})`;
+            const methodText = escapeHtml(r.method || '-');
+            const accountInfoText = escapeHtml(r.account_info || '-');
+            const rejectReasonText = escapeHtml(r.reject_reason || '-');
+
+            let actions = '';
+            const s = Number(r.status || 0);
+            if (s === 0) {
+                actions = `
+                    <button class="btn btn-secondary btn-sm" onclick="approveWithdraw(${r.withdraw_id})">通过</button>
+                    <button class="btn btn-primary btn-sm" onclick="payWithdraw(${r.withdraw_id})">打款</button>
+                    <button class="btn btn-danger btn-sm" onclick="rejectWithdraw(${r.withdraw_id})">驳回</button>
+                `;
+            } else if (s === 1) {
+                actions = `
+                    <button class="btn btn-primary btn-sm" onclick="payWithdraw(${r.withdraw_id})">打款</button>
+                    <button class="btn btn-danger btn-sm" onclick="rejectWithdraw(${r.withdraw_id})">驳回</button>
+                `;
+            } else {
+                actions = '-';
+            }
+
+            return `
+                <tr>
+                    <td>${r.withdraw_id}</td>
+                    <td>${r.user_id}</td>
+                    <td>${amountText}</td>
+                    <td>${methodText}</td>
+                    <td style="max-width:260px; white-space:normal;">${accountInfoText}</td>
+                    <td>${formatStatusBadge(st.type, st.text)}</td>
+                    <td>${r.requested_at ? new Date(r.requested_at).toLocaleString('zh-CN') : '-'}</td>
+                    <td>${r.processed_at ? new Date(r.processed_at).toLocaleString('zh-CN') : '-'}</td>
+                    <td>${r.processed_by ? r.processed_by : '-'}</td>
+                    <td style="max-width:220px; white-space:normal;">${rejectReasonText}</td>
+                    <td class="action-cell">${actions}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        body.innerHTML = `<tr><td colspan="11" class="error-cell">${error.message || '加载失败'}</td></tr>`;
+    }
+}
+
+async function approveWithdraw(withdrawId) {
+    try {
+        await apiRequest(`/withdraw-requests/${withdrawId}/approve`, { method: 'POST' });
+        showToast('已通过', 'success');
+        await loadWithdrawRequests();
+    } catch (error) {
+        showToast(error.message || '操作失败', 'error');
+    }
+}
+
+async function payWithdraw(withdrawId) {
+    const ok = confirm('确认已完成打款？');
+    if (!ok) return;
+
+    try {
+        await apiRequest(`/withdraw-requests/${withdrawId}/pay`, { method: 'POST' });
+        showToast('已标记打款', 'success');
+        await loadWithdrawRequests();
+    } catch (error) {
+        showToast(error.message || '操作失败', 'error');
+    }
+}
+
+async function rejectWithdraw(withdrawId) {
+    const reason = prompt('请输入驳回原因：');
+    if (!reason) return;
+
+    try {
+        await apiRequest(`/withdraw-requests/${withdrawId}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ reject_reason: reason })
+        });
+        showToast('已驳回并回滚余额', 'success');
+        await loadWithdrawRequests();
+    } catch (error) {
+        showToast(error.message || '操作失败', 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const input = document.getElementById('withdrawUserIdFilter');
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') loadWithdrawRequests();
+    });
+    loadWithdrawRequests();
+});
+</script>
+{% endblock %}

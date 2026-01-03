@@ -5,261 +5,710 @@
 {% block page_title %}收益统计{% endblock %}
 
 {% block content %}
-<div class="stats-overview">
-    <div class="stat-card highlight">
-        <div class="stat-icon">💰</div>
-        <div class="stat-content">
-            <span class="stat-value" id="totalCoins">0</span>
-            <span class="stat-label">总金币</span>
+<div class="card">
+    <div class="card-header between">
+        <div>
+            <h3>收益统计</h3>
+            <p class="text-muted">支持快捷选择与自定义范围；数据按日志日期汇总到每日收益（10000 金币 = 1 元）。</p>
         </div>
     </div>
-    <div class="stat-card">
-        <div class="stat-icon">📅</div>
-        <div class="stat-content">
-            <span class="stat-value" id="todayCoins">0</span>
-            <span class="stat-label">今日金币</span>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon">📆</div>
-        <div class="stat-content">
-            <span class="stat-value" id="weekCoins">0</span>
-            <span class="stat-label">本周金币</span>
-        </div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-icon">💵</div>
-        <div class="stat-content">
-            <span class="stat-value" id="estimatedAmount">¥0.00</span>
-            <span class="stat-label">预计收益</span>
-        </div>
-    </div>
-</div>
-
-<div class="filter-bar">
-    <div class="filter-group">
-        <label>日期范围:</label>
-        <input type="date" id="startDate" onchange="loadEarnings()">
-        <span>至</span>
-        <input type="date" id="endDate" onchange="loadEarnings()">
-    </div>
-    <div class="filter-group">
-        <label>账号:</label>
-        <select id="accountFilter" onchange="loadEarnings()">
-            <option value="">全部账号</option>
-            <!-- 动态加载 -->
-        </select>
-    </div>
-</div>
-
-<div class="dashboard-grid">
-    <!-- 收益趋势图 -->
-    <div class="dashboard-card full-width">
-        <div class="card-header">
-            <h3>收益趋势</h3>
-            <div class="chart-legend">
-                <span class="legend-item"><span class="legend-color food"></span>美食</span>
-                <span class="legend-item"><span class="legend-color look"></span>看视频</span>
-                <span class="legend-item"><span class="legend-color box"></span>宝箱</span>
-                <span class="legend-item"><span class="legend-color search"></span>搜索</span>
+    <div class="card-body">
+        <div class="filter-bar">
+            <div class="filter-group">
+                <label>统计周期:</label>
+                <div class="btn-group" id="quickRanges">
+                    <button type="button" class="btn btn-secondary btn-sm" data-range="today">今日</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-range="yesterday">昨日</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-range="7d">近7天</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-range="30d">近30天</button>
+                </div>
+            </div>
+            <div class="filter-group">
+                <label>自定义:</label>
+                <input type="date" id="startDate">
+                <span>至</span>
+                <input type="date" id="endDate">
+                <button type="button" class="btn btn-primary btn-sm" id="applyRange">应用</button>
+            </div>
+            <div class="filter-group filter-right">
+                <small class="text-muted" id="viewerInfo"></small>
             </div>
         </div>
-        <div class="card-body">
-            <div class="earnings-chart-container">
-                <div class="stacked-chart" id="stackedChart">
-                    <!-- 动态生成 -->
+
+        <div class="stats-overview">
+            <div class="stat-card highlight">
+                <div class="stat-icon">¥</div>
+                <div class="stat-content">
+                    <span class="stat-value" id="todayTotalYuan">¥0.00</span>
+                    <span class="stat-label">当日总收入（含下级分成）</span>
+                    <small class="text-muted" id="todayTotalCoins">0 金币</small>
+                    <small class="text-muted" id="todayCompare">较昨日 —</small>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">Σ</div>
+                <div class="stat-content">
+                    <span class="stat-value" id="periodTotalYuan">¥0.00</span>
+                    <span class="stat-label">本周期收入（含下级分成）</span>
+                    <small class="text-muted" id="periodTotalCoins">0 金币</small>
+                    <small class="text-muted" id="periodRangeLabel">周期 -</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="dashboard-card full-width">
+                <div class="card-header">
+                    <h3>分层贡献（本周期）</h3>
+                </div>
+                <div class="card-body">
+                    <div class="stats-overview">
+                        <div class="stat-card">
+                            <div class="stat-icon">我</div>
+                            <div class="stat-content">
+                                <span class="stat-value" id="mePeriodYuan">¥0.00</span>
+                                <span class="stat-label" id="meTitle">我自己</span>
+                                <small class="text-muted" id="meMeta">0 金币 · 贡献 0%</small>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">-1</div>
+                            <div class="stat-content">
+                                <span class="stat-value" id="l1PeriodYuan">¥0.00</span>
+                                <span class="stat-label">一级下级</span>
+                                <small class="text-muted" id="l1Meta">账号 0 个 · 贡献 0% · 状态正常</small>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">-2</div>
+                            <div class="stat-content">
+                                <span class="stat-value" id="l2PeriodYuan">¥0.00</span>
+                                <span class="stat-label">二级下级</span>
+                                <small class="text-muted" id="l2Meta">账号 0 个 · 贡献 0% · 状态正常</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="account-lists">
+                        <details id="l1Details">
+                            <summary>
+                                <span id="l1SummaryTitle">一级下级账号（0）</span>
+                                <span class="summary-right" id="l1SummaryRight">当日 ¥0.00 · 异常/无收益 0</span>
+                            </summary>
+                            <div class="table-responsive">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>账号</th>
+                                            <th style="width:140px;">当日收益</th>
+                                            <th style="width:120px;">金币</th>
+                                            <th style="width:100px;">状态</th>
+                                            <th>说明</th>
+                                            <th style="width:200px;">来源简报</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="l1TableBody">
+                                        <tr><td colspan="6" class="loading-cell">加载中...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </details>
+
+                        <details id="l2Details">
+                            <summary>
+                                <span id="l2SummaryTitle">二级下级账号（0）</span>
+                                <span class="summary-right" id="l2SummaryRight">当日 ¥0.00 · 异常/无收益 0</span>
+                            </summary>
+                            <div class="table-responsive">
+                                <table class="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>账号</th>
+                                            <th style="width:140px;">当日收益</th>
+                                            <th style="width:120px;">金币</th>
+                                            <th style="width:100px;">状态</th>
+                                            <th>说明</th>
+                                            <th style="width:200px;">来源简报</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="l2TableBody">
+                                        <tr><td colspan="6" class="loading-cell">加载中...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dashboard-card full-width">
+                <div class="card-header">
+                    <h3>近30天账号金币趋势（按账号）</h3>
+                </div>
+                <div class="card-body">
+                    <div class="trend-legend" id="earningsTrendLegend"></div>
+                    <div class="trend-chart" id="earningsTrendChart">
+                        <div class="loading-placeholder">加载中...</div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
-
-    <!-- 收益明细表 -->
-    <div class="dashboard-card full-width">
-        <div class="card-header">
-            <h3>收益明细</h3>
-            <button class="btn btn-secondary btn-sm" onclick="exportEarnings()">📥 导出</button>
-        </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="data-table" id="earningsTable">
-                    <thead>
-                        <tr>
-                            <th>日期</th>
-                            <th>账号</th>
-                            <th>总金币</th>
-                            <th>美食</th>
-                            <th>看视频</th>
-                            <th>宝箱</th>
-                            <th>搜索</th>
-                            <th>备注</th>
-                        </tr>
-                    </thead>
-                    <tbody id="earningsTableBody">
-                        <tr><td colspan="8" class="loading-cell">加载中...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
 </div>
+{% endblock %}
 
+{% block extra_js %}
 <script>
-let earningsData = [];
-let accounts = [];
+let currentRangeKey = '7d';
+let hierarchyRequestSeq = 0;
+let trendRequestSeq = 0;
+let earningsTrendCache = null;
+let earningsTrendSelectionInitialized = false;
+let earningsTrendSelectedEnvIds = new Set();
+let earningsTrendKnownEnvIds = new Set();
 
-document.addEventListener('DOMContentLoaded', function() {
-    initDateRange();
-    loadAccounts();
-    loadEarnings();
-    loadStats();
+document.addEventListener('DOMContentLoaded', () => {
+    initDefaultRange();
+    bindRangeEvents();
+    loadHierarchy();
 });
 
-function initDateRange() {
+function initDefaultRange() {
     const today = new Date();
-    const weekAgo = new Date(today);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    
-    document.getElementById('endDate').value = today.toISOString().split('T')[0];
-    document.getElementById('startDate').value = weekAgo.toISOString().split('T')[0];
+    const start = new Date(today);
+    start.setDate(start.getDate() - 6);
+    setDateInputs(start, today);
+    setActiveQuickRange('7d');
 }
 
-async function loadAccounts() {
+function bindRangeEvents() {
+    document.getElementById('quickRanges').addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-range]');
+        if (!btn) return;
+        applyQuickRange(btn.dataset.range);
+    });
+
+    document.getElementById('applyRange').addEventListener('click', () => {
+        currentRangeKey = 'custom';
+        setActiveQuickRange(null);
+        loadHierarchy();
+    });
+}
+
+function applyQuickRange(rangeKey) {
+    const today = new Date();
+    let start = new Date(today);
+    let end = new Date(today);
+
+    if (rangeKey === 'today') {
+        start = today;
+        end = today;
+    } else if (rangeKey === 'yesterday') {
+        start.setDate(start.getDate() - 1);
+        end.setDate(end.getDate() - 1);
+    } else if (rangeKey === '7d') {
+        start.setDate(start.getDate() - 6);
+    } else if (rangeKey === '30d') {
+        start.setDate(start.getDate() - 29);
+    }
+
+    currentRangeKey = rangeKey;
+    setDateInputs(start, end);
+    setActiveQuickRange(rangeKey);
+    loadHierarchy();
+}
+
+function setActiveQuickRange(rangeKey) {
+    document.querySelectorAll('#quickRanges button[data-range]').forEach(btn => {
+        const isActive = rangeKey && btn.dataset.range === rangeKey;
+        btn.classList.toggle('btn-primary', isActive);
+        btn.classList.toggle('btn-secondary', !isActive);
+    });
+}
+
+function setDateInputs(start, end) {
+    document.getElementById('startDate').value = toISODate(start);
+    document.getElementById('endDate').value = toISODate(end);
+}
+
+function toISODate(d) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+async function loadHierarchy() {
+    const requestSeq = ++hierarchyRequestSeq;
+    setLoadingState(true);
     try {
-        accounts = await apiRequest('/ks-accounts');
-        const select = document.getElementById('accountFilter');
-        select.innerHTML = '<option value="">全部账号</option>' + 
-            (accounts || []).map(a => `<option value="${a.id}">${a.mobile || a.ks_uid || '账号' + a.id}</option>`).join('');
-    } catch (error) {
-        console.error('加载账号失败:', error);
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        const url = `/stats/earnings-hierarchy?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+        const data = await apiRequest(url);
+        if (requestSeq !== hierarchyRequestSeq) return;
+        renderHierarchy(data);
+        loadEarningsTrend(requestSeq);
+    } catch (err) {
+        console.error(err);
+        showToast(err.message || '加载收益统计失败', 'error');
+    } finally {
+        if (requestSeq === hierarchyRequestSeq) setLoadingState(false);
     }
 }
 
-async function loadStats() {
+function setLoadingState(isLoading) {
+    if (!isLoading) return;
+    document.getElementById('l1TableBody').innerHTML = '<tr><td colspan=\"6\" class=\"loading-cell\">加载中...</td></tr>';
+    document.getElementById('l2TableBody').innerHTML = '<tr><td colspan=\"6\" class=\"loading-cell\">加载中...</td></tr>';
+}
+
+function renderHierarchy(data) {
+    const period = data.period || {};
+    const viewer = data.viewer || {};
+    const todayOverview = data.today_overview || {};
+    const periodOverview = data.period_overview || {};
+    const layers = data.layers || {};
+
+    const userId = viewer.my_user_id || viewer.my_env_id || '-';
+    const displayName = viewer.my_display_name || viewer.my_remark || '-';
+    const envCount = Number(viewer.my_env_count || 0);
+    document.getElementById('viewerInfo').textContent = `当前用户：${displayName}（user_id: ${userId} · 账号 ${envCount} 个）`;
+    document.getElementById('periodRangeLabel').textContent = `周期 ${period.start_date || '-'} ~ ${period.end_date || '-'}`;
+
+    document.getElementById('todayTotalYuan').textContent = formatYuan(todayOverview.total_yuan);
+    document.getElementById('todayTotalCoins').textContent = buildIncomeCoinsText(todayOverview.total_coins, todayOverview.gross_total_coins);
+    document.getElementById('todayCompare').textContent = buildCompareText(todayOverview);
+
+    document.getElementById('periodTotalYuan').textContent = formatYuan(periodOverview.total_yuan);
+    document.getElementById('periodTotalCoins').textContent = buildIncomeCoinsText(periodOverview.total_coins, periodOverview.gross_total_coins);
+
+    const me = layers.me || {};
+    const l1 = layers.l1 || {};
+    const l2 = layers.l2 || {};
+
+    document.getElementById('mePeriodYuan').textContent = formatYuan(me.period_income_yuan);
+    document.getElementById('meTitle').textContent = '我自己';
+    document.getElementById('meMeta').textContent = `折算 ${formatCoins(me.period_income_coins)} 金币 · 贡献 ${formatPct(me.share_pct)}%`;
+
+    document.getElementById('l1PeriodYuan').textContent = formatYuan(l1.period_income_yuan);
+    document.getElementById('l1Meta').textContent = buildLayerMetaText(l1);
+
+    document.getElementById('l2PeriodYuan').textContent = formatYuan(l2.period_income_yuan);
+    document.getElementById('l2Meta').textContent = buildLayerMetaText(l2);
+
+    renderAccountSection('l1', l1, (data.accounts && data.accounts.l1) ? data.accounts.l1 : []);
+    renderAccountSection('l2', l2, (data.accounts && data.accounts.l2) ? data.accounts.l2 : []);
+}
+
+async function loadEarningsTrend(parentSeq) {
+    const expectedHierarchySeq = parentSeq || hierarchyRequestSeq;
+    const requestSeq = ++trendRequestSeq;
+    const container = document.getElementById('earningsTrendChart');
+    const legend = document.getElementById('earningsTrendLegend');
+    if (!container) return;
+
+    if (legend) legend.innerHTML = '';
+    container.innerHTML = '<div class="loading-placeholder">加载中...</div>';
     try {
-        const stats = await apiRequest('/stats/earnings');
-        document.getElementById('totalCoins').textContent = formatNumber(stats.total_coins || 0);
-        document.getElementById('todayCoins').textContent = formatNumber(stats.today_coins || 0);
-        document.getElementById('weekCoins').textContent = formatNumber(stats.week_coins || 0);
-        document.getElementById('estimatedAmount').textContent = '¥' + (stats.estimated_amount || 0).toFixed(2);
-    } catch (error) {
-        console.error('加载统计失败:', error);
+        const endDate = document.getElementById('endDate')?.value;
+        const url = endDate
+            ? `/stats/earnings-trend-by-env?days=30&end_date=${encodeURIComponent(endDate)}`
+            : '/stats/earnings-trend-by-env?days=30';
+        const payload = await apiRequest(url);
+        if (expectedHierarchySeq !== hierarchyRequestSeq) return;
+        if (requestSeq !== trendRequestSeq) return;
+        renderEarningsTrendByEnv(legend, container, payload || {});
+    } catch (err) {
+        console.error(err);
+        container.innerHTML = '<div class="error-placeholder">加载失败</div>';
     }
 }
 
-async function loadEarnings() {
-    const tbody = document.getElementById('earningsTableBody');
-    const startDate = document.getElementById('startDate').value;
-    const endDate = document.getElementById('endDate').value;
-    const accountId = document.getElementById('accountFilter').value;
-    
-    let url = `/earnings?start_date=${startDate}&end_date=${endDate}`;
-    if (accountId) url += `&ks_account_id=${accountId}`;
-    
-    try {
-        earningsData = await apiRequest(url);
-        renderEarnings();
-        renderChart();
-    } catch (error) {
-        tbody.innerHTML = '<tr><td colspan="8" class="error-cell">加载失败: ' + error.message + '</td></tr>';
-    }
+function trendColorForEnvId(envId) {
+    const hue = (Number(envId || 0) * 47) % 360;
+    return `hsl(${hue}, 70%, 50%)`;
 }
 
-function renderEarnings() {
-    const tbody = document.getElementById('earningsTableBody');
-    if (!earningsData || earningsData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">暂无收益数据</td></tr>';
+function trendLevelPrefix(level) {
+    if (level === 'me') return '我: ';
+    if (level === 'l1') return '-1: ';
+    if (level === 'l2') return '-2: ';
+    return '';
+}
+
+function renderEarningsTrendChart() {
+    const chartContainer = document.getElementById('earningsTrendChart');
+    if (!chartContainer) return;
+
+    if (!earningsTrendCache || !Array.isArray(earningsTrendCache.dates) || !Array.isArray(earningsTrendCache.accounts)) {
+        chartContainer.innerHTML = '<div class="empty-placeholder">暂无数据</div>';
         return;
     }
-    
-    tbody.innerHTML = earningsData.map(e => {
-        const acc = accounts.find(a => a.id === e.ks_account_id);
+
+    const dates = earningsTrendCache.dates;
+    const accounts = earningsTrendCache.accounts;
+    const n = dates.length;
+
+    const visibleAccounts = accounts.filter(a => earningsTrendSelectedEnvIds.has(String(a.env_id)));
+    if (!visibleAccounts.length) {
+        chartContainer.innerHTML = '<div class="empty-placeholder">请选择要展示的账号</div>';
+        return;
+    }
+
+    const maxValue = Math.max(
+        ...visibleAccounts.flatMap(a => (Array.isArray(a.coins) ? a.coins : []).map(x => Number(x || 0)))
+    );
+    if (!isFinite(maxValue) || maxValue <= 0) {
+        chartContainer.innerHTML = '<div class="empty-placeholder">暂无数据</div>';
+        return;
+    }
+
+    const width = 720;
+    const height = 260;
+    const padding = { left: 46, right: 14, top: 12, bottom: 32 };
+    const plotW = width - padding.left - padding.right;
+    const plotH = height - padding.top - padding.bottom;
+    const xFor = (i) => (n === 1 ? padding.left + plotW / 2 : padding.left + (i / (n - 1)) * plotW);
+    const yFor = (v) => padding.top + (1 - (v / maxValue)) * plotH;
+
+    const gridLines = 4;
+    const gridSvg = Array.from({ length: gridLines + 1 }, (_, idx) => {
+        const t = idx / gridLines;
+        const y = padding.top + t * plotH;
+        const value = Math.round(maxValue * (1 - t));
+        const label = formatTrendTick(value);
+        return `
+            <g>
+                <line x1="${padding.left}" y1="${y}" x2="${padding.left + plotW}" y2="${y}" style="stroke: var(--border-color); stroke-opacity: 0.6; stroke-width: 1;" />
+                <text x="${padding.left - 8}" y="${y + 4}" text-anchor="end" style="fill: var(--text-muted); font-size: 10px;">${label}</text>
+            </g>
+        `;
+    }).join('');
+
+    const xLabelIndexes = new Set([0, n - 1]);
+    const labelCount = 6;
+    const step = Math.max(1, Math.round((n - 1) / (labelCount - 1)));
+    for (let i = 0; i < n; i += step) xLabelIndexes.add(i);
+
+    const xLabelsSvg = Array.from(xLabelIndexes)
+        .sort((a, b) => a - b)
+        .map(i => {
+            const d = dates[i] || '';
+            const label = d ? d.substring(5) : '';
+            const x = xFor(i);
+            const y = height - 10;
+            return `<text x="${x}" y="${y}" text-anchor="middle" style="fill: var(--text-muted); font-size: 10px;">${label}</text>`;
+        })
+        .join('');
+
+    const seriesSvg = visibleAccounts.map(a => {
+        const envId = String(a.env_id);
+        const color = trendColorForEnvId(envId);
+        const coins = Array.isArray(a.coins) ? a.coins.map(x => Number(x || 0)) : [];
+        const padded = Array.from({ length: n }, (_, i) => Number(coins[i] || 0));
+        const points = padded.map((v, i) => `${xFor(i)},${yFor(v)}`).join(' ');
+        const remark = (a.remark || '').trim() || ('账号#' + a.env_id);
+        const title = `${trendLevelPrefix(a.level)}${remark}（env_id:${a.env_id}） 总计 ${formatCoins(a.total_coins || 0)} 金币`;
+        return `
+            <g>
+                <polyline fill="none" points="${points}" style="stroke: ${color}; stroke-width: 2; stroke-opacity: 0.85;" vector-effect="non-scaling-stroke">
+                    <title>${escapeHtml(title)}</title>
+                </polyline>
+            </g>
+        `;
+    }).join('');
+
+    chartContainer.innerHTML = `
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" class="trend-svg" role="img" aria-label="近30天账号金币趋势">
+            ${gridSvg}
+            ${seriesSvg}
+            ${xLabelsSvg}
+        </svg>
+    `;
+}
+
+function renderEarningsTrendByEnv(legend, container, payload) {
+    const dates = Array.isArray(payload.dates) ? payload.dates : [];
+    const rows = Array.isArray(payload.accounts) ? payload.accounts : [];
+
+    if (!dates.length || !rows.length) {
+        if (legend) legend.innerHTML = '';
+        container.innerHTML = '<div class="empty-placeholder">暂无数据</div>';
+        earningsTrendCache = null;
+        return;
+    }
+
+    const levelOrder = { me: 0, l1: 1, l2: 2, unknown: 3 };
+    const accounts = rows.slice().sort((a, b) => {
+        const ao = levelOrder[a.level] ?? 9;
+        const bo = levelOrder[b.level] ?? 9;
+        if (ao !== bo) return ao - bo;
+        return Number(b.total_coins || 0) - Number(a.total_coins || 0);
+    });
+
+    earningsTrendCache = { dates, accounts };
+
+    const availableEnvIds = new Set(accounts.map(a => String(a.env_id)));
+    if (!earningsTrendSelectionInitialized) {
+        earningsTrendSelectedEnvIds = new Set(Array.from(availableEnvIds));
+        earningsTrendKnownEnvIds = new Set(Array.from(availableEnvIds));
+        earningsTrendSelectionInitialized = true;
+    } else {
+        Array.from(earningsTrendSelectedEnvIds).forEach(envId => {
+            if (!availableEnvIds.has(envId)) earningsTrendSelectedEnvIds.delete(envId);
+        });
+        availableEnvIds.forEach(envId => {
+            if (!earningsTrendKnownEnvIds.has(envId)) earningsTrendSelectedEnvIds.add(envId);
+        });
+        earningsTrendKnownEnvIds = new Set(Array.from(availableEnvIds));
+    }
+
+    if (legend) {
+        legend.innerHTML = accounts
+            .map(a => {
+                const envId = String(a.env_id);
+                const color = trendColorForEnvId(envId);
+                const checked = earningsTrendSelectedEnvIds.has(envId) ? 'checked' : '';
+                const remark = (a.remark || '').trim() || ('账号#' + a.env_id);
+                const label = `${trendLevelPrefix(a.level)}${remark}`;
+                return `
+                    <label class="trend-check">
+                        <input class="trend-check-input" type="checkbox" data-env-id="${envId}" ${checked} />
+                        <span class="legend-dot" style="background:${color}"></span>
+                        <span class="trend-check-label">${escapeHtml(label)}</span>
+                    </label>
+                `;
+            })
+            .join('');
+
+        if (!legend.dataset.bound) {
+            legend.addEventListener('change', (e) => {
+                const target = e.target;
+                if (!target || target.tagName !== 'INPUT') return;
+                const envId = target.dataset.envId;
+                if (!envId) return;
+                if (target.checked) {
+                    earningsTrendSelectedEnvIds.add(envId);
+                } else {
+                    earningsTrendSelectedEnvIds.delete(envId);
+                }
+                renderEarningsTrendChart();
+            });
+            legend.dataset.bound = '1';
+        }
+    }
+
+    renderEarningsTrendChart();
+}
+
+function renderAccountSection(levelKey, layer, rows) {
+    const cnt = layer.count || 0;
+    const todayYuan = formatYuan(layer.today_yuan);
+    const issues = layer.abnormal_count || 0;
+
+    document.getElementById(`${levelKey}SummaryTitle`).textContent = `${levelKey === 'l1' ? '一级下级账号' : '二级下级账号'}（${cnt}）`;
+    document.getElementById(`${levelKey}SummaryRight`).textContent = `当日 ${todayYuan} · 异常/无收益 ${issues}`;
+
+    const tbody = document.getElementById(`${levelKey}TableBody`);
+    if (!rows || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan=\"6\" class=\"empty-cell\">暂无账号</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = rows.map(r => {
+        const badge = buildStatusBadge(r.status);
+        const sources = buildTopSources(r.sources || {}, r.today_coins || 0);
         return `
             <tr>
-                <td>${e.stat_date}</td>
-                <td>${acc ? (acc.mobile || acc.ks_uid) : '-'}</td>
-                <td class="coins-total">${formatNumber(e.coins_total)}</td>
-                <td>${formatNumber(e.coins_from_food)}</td>
-                <td>${formatNumber(e.coins_from_look)}</td>
-                <td>${formatNumber(e.coins_from_box)}</td>
-                <td>${formatNumber(e.coins_from_search)}</td>
-                <td>${e.remark || '-'}</td>
+                <td>${escapeHtml(r.remark || ('账号#' + r.env_id))}</td>
+                <td class=\"coins-total\">${formatYuan(r.today_yuan)}</td>
+                <td>${formatCoins(r.today_coins)} 金币</td>
+                <td><span class=\"status-badge ${badge.className}\">${badge.text}</span></td>
+                <td>${escapeHtml(r.explanation || '-')}</td>
+                <td>${escapeHtml(sources)}</td>
             </tr>
         `;
     }).join('');
 }
 
-function renderChart() {
-    const container = document.getElementById('stackedChart');
-    if (!earningsData || earningsData.length === 0) {
-        container.innerHTML = '<div class="empty-placeholder">暂无数据</div>';
-        return;
+function buildCompareText(todayOverview) {
+    const todayCoins = Number(todayOverview.total_coins || 0);
+    const yesterdayCoins = Number(todayOverview.yesterday_coins || 0);
+    const pct = todayOverview.pct_change;
+
+    if (yesterdayCoins === 0) {
+        if (todayCoins > 0) return '较昨日 新增长';
+        return '较昨日 —';
     }
-    
-    // 按日期聚合
-    const byDate = {};
-    earningsData.forEach(e => {
-        if (!byDate[e.stat_date]) {
-            byDate[e.stat_date] = { food: 0, look: 0, box: 0, search: 0 };
-        }
-        byDate[e.stat_date].food += e.coins_from_food;
-        byDate[e.stat_date].look += e.coins_from_look;
-        byDate[e.stat_date].box += e.coins_from_box;
-        byDate[e.stat_date].search += e.coins_from_search;
-    });
-    
-    const dates = Object.keys(byDate).sort();
-    const maxTotal = Math.max(...dates.map(d => 
-        byDate[d].food + byDate[d].look + byDate[d].box + byDate[d].search
-    ));
-    
-    container.innerHTML = `
-        <div class="chart-bars-container">
-            ${dates.map(d => {
-                const data = byDate[d];
-                const total = data.food + data.look + data.box + data.search;
-                const scale = maxTotal > 0 ? 100 / maxTotal : 0;
-                return `
-                    <div class="stacked-bar-group">
-                        <div class="stacked-bar" title="${d}: ${formatNumber(total)} 金币">
-                            <div class="bar-segment food" style="height: ${data.food * scale}%"></div>
-                            <div class="bar-segment look" style="height: ${data.look * scale}%"></div>
-                            <div class="bar-segment box" style="height: ${data.box * scale}%"></div>
-                            <div class="bar-segment search" style="height: ${data.search * scale}%"></div>
-                        </div>
-                        <span class="bar-label">${d.substring(5)}</span>
-                    </div>
-                `;
-            }).join('')}
-        </div>
-    `;
+    const pctNumber = Number(pct || 0);
+    const arrow = pctNumber >= 0 ? '↑' : '↓';
+    return `较昨日 ${arrow}${Math.abs(pctNumber).toFixed(2)}%`;
 }
 
-function exportEarnings() {
-    if (!earningsData || earningsData.length === 0) {
-        showToast('没有数据可导出', 'warning');
-        return;
-    }
-    
-    const headers = ['日期', '账号ID', '总金币', '美食', '看视频', '宝箱', '搜索', '备注'];
-    const rows = earningsData.map(e => [
-        e.stat_date, e.ks_account_id, e.coins_total, 
-        e.coins_from_food, e.coins_from_look, e.coins_from_box, e.coins_from_search,
-        e.remark || ''
-    ]);
-    
-    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `收益统计_${new Date().toISOString().split('T')[0]}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+function buildLayerMetaText(layer) {
+    const cnt = layer.count || 0;
+    const share = formatPct(layer.share_pct);
+    const issues = layer.abnormal_count || 0;
+    const issuesText = issues > 0 ? `异常/无收益 ${issues}` : '状态正常';
+    const incomeCoins = Number(layer.period_income_coins || 0);
+    return `折算 ${formatCoins(incomeCoins)} 金币 · 账号 ${cnt} 个 · 贡献 ${share}% · ${issuesText}`;
 }
 
-function formatNumber(num) {
+function buildIncomeCoinsText(incomeCoins, grossCoins) {
+    const income = Number(incomeCoins || 0);
+    const gross = Number(grossCoins || 0);
+    const base = `折算 ${formatCoins(income)} 金币`;
+    if (!gross || gross === income) return base;
+    return `${base}（原始 ${formatCoins(gross)} 金币）`;
+}
+
+function buildStatusBadge(status) {
+    if (status === 'normal') return { text: '正常', className: 'status-normal' };
+    if (status === 'abnormal') return { text: '异常', className: 'status-invalid' };
+    return { text: '无收益', className: 'status-expired' };
+}
+
+function buildTopSources(sources, totalCoins) {
+    const defs = [
+        { key: 'box', name: '宝箱' },
+        { key: 'look', name: '看视频' },
+        { key: 'food', name: '美食' },
+        { key: 'search', name: '搜索' }
+    ];
+
+    const items = defs.map(d => {
+        const coins = Number((sources && sources[d.key]) || 0);
+        return { name: d.name, coins };
+    }).filter(x => x.coins > 0);
+
+    if (!items.length || !totalCoins) return '-';
+
+    items.sort((a, b) => b.coins - a.coins);
+    return items.slice(0, 2).map(x => {
+        const pct = (x.coins / totalCoins * 100);
+        return `${x.name} ${pct.toFixed(0)}%`;
+    }).join(' | ');
+}
+
+function formatTrendTick(value) {
+    const num = Number(value || 0);
     if (num >= 10000) return (num / 10000).toFixed(1) + '万';
-    return num.toString();
+    return String(Math.round(num));
+}
+
+function formatCoins(value) {
+    const num = Number(value || 0);
+    return num.toLocaleString('zh-CN');
+}
+
+function formatYuan(value) {
+    const num = Number(value || 0);
+    return '¥' + num.toFixed(2);
+}
+
+function formatPct(value) {
+    const num = Number(value || 0);
+    return num.toFixed(2);
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text == null ? '' : String(text);
+    return div.innerHTML;
 }
 </script>
+
+<style>
+.filter-right {
+    flex: 1;
+    justify-content: flex-end;
+}
+.account-lists details {
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--card-bg);
+    margin-bottom: 12px;
+    overflow: hidden;
+}
+.account-lists summary {
+    cursor: pointer;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-weight: 600;
+    list-style: none;
+}
+.account-lists summary::-webkit-details-marker {
+    display: none;
+}
+.account-lists details[open] summary {
+    border-bottom: 1px solid var(--border-color);
+}
+.account-lists .summary-right {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+.account-lists details .table-responsive {
+    padding: 10px 14px 14px;
+}
+.stat-card .stat-content small {
+    font-size: 12px;
+}
+
+.trend-legend {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 10px;
+    color: var(--text-muted);
+    font-size: 13px;
+    max-height: 96px;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.trend-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.trend-check-input {
+    margin: 0;
+}
+
+.trend-check-input:checked + .legend-dot + .trend-check-label {
+    color: var(--text-color);
+}
+
+.trend-legend .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.trend-chart {
+    width: 100%;
+    height: 260px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--bg-color);
+    overflow: hidden;
+}
+
+.trend-chart .trend-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+</style>
 {% endblock %}

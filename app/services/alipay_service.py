@@ -16,7 +16,8 @@ from app.database import get_db
 from app.models import (
     AlipayConfig, RechargeOrder, TransferRecord,
     RechargeOrderStatus, TransferStatus,
-    User, UserReferral, WalletAccount, WalletTransaction, TransactionType
+    SettlementPeriod,
+    User, UserReferral, WalletAccount
 )
 
 
@@ -487,15 +488,28 @@ def get_wallet_with_alipay(user_id: int, db: Session) -> dict:
 
     wallet = db.query(WalletAccount).filter(WalletAccount.user_id == user_id).first()
     if not wallet:
-        wallet = WalletAccount(user_id=user_id, balance=0)
+        wallet = WalletAccount(user_id=user_id, available_coins=0, locked_coins=0)
         db.add(wallet)
         db.commit()
         db.refresh(wallet)
+
+    # 兑率：优先使用当前结算期 coin_rate（历史期展示不在此处理）
+    period = (
+        db.query(SettlementPeriod)
+        .filter(SettlementPeriod.status.in_([0, 1]))
+        .order_by(SettlementPeriod.period_id.desc())
+        .first()
+    )
+    coin_rate = int(period.coin_rate) if period and int(getattr(period, "coin_rate", 0) or 0) > 0 else 10000
+    balance_yuan = float(Decimal(int(wallet.available_coins or 0)) / Decimal(coin_rate))
 
     return {
         "user_id": user.id,
         "username": user.username,
         "nickname": user.nickname,
-        "balance": float(wallet.balance),
+        "balance": balance_yuan,
+        "coin_rate": coin_rate,
+        "available_coins": int(wallet.available_coins or 0),
+        "locked_coins": int(wallet.locked_coins or 0),
         "alipay_account": user.alipay_account
     }
