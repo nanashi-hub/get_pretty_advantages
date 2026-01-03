@@ -5,130 +5,650 @@
 {% block page_title %}缴费审核{% endblock %}
 
 {% block content %}
-<div class="data-card">
-    <div class="card-header">
-        <h3>结算期管理（管理员）</h3>
-    </div>
-
-    <div class="form-row">
-        <div class="form-group">
-            <label>统计开始日<span class="required">*</span></label>
-            <input type="date" id="periodStart">
+<!-- 页面头部 -->
+<div class="admin-header-card">
+    <div class="admin-header-info">
+        <div class="admin-header-title">
+            <span class="admin-icon">📊</span>
+            <div>
+                <h3>结算管理</h3>
+                <p class="admin-subtitle">结算期管理与缴费审核</p>
+            </div>
         </div>
-        <div class="form-group">
-            <label>统计结束日<span class="required">*</span></label>
-            <input type="date" id="periodEnd">
+        <div class="admin-actions">
+            <button class="btn-admin-action" onclick="loadPeriods()">
+                <span>🔄</span> 刷新
+            </button>
         </div>
-    </div>
-    <div class="form-row">
-        <div class="form-group">
-            <label>缴费开始日<span class="required">*</span></label>
-            <input type="date" id="payStart">
-        </div>
-        <div class="form-group">
-            <label>缴费截止日<span class="required">*</span></label>
-            <input type="date" id="payEnd">
-        </div>
-    </div>
-    <div class="form-row">
-        <div class="form-group">
-            <label>coin_rate（coins=1元）</label>
-            <input type="number" id="coinRate" min="1" step="1" value="10000">
-        </div>
-        <div class="form-group">
-            <label>状态</label>
-            <select id="periodStatus">
-                <option value="0">OPEN</option>
-                <option value="1">PAYING</option>
-                <option value="2">CLOSED</option>
-            </select>
-        </div>
-    </div>
-    <div class="form-row">
-        <div class="form-group">
-            <label>host_bps（号主自留）</label>
-            <input type="number" id="hostBps" min="0" max="10000" step="1" value="6000">
-        </div>
-        <div class="form-group">
-            <label>collect_bps（应缴平台）</label>
-            <input type="number" id="collectBps" min="0" max="10000" step="1" value="4000">
-        </div>
-    </div>
-    <div class="form-row">
-        <div class="form-group">
-            <label>l1_bps（+1分成）</label>
-            <input type="number" id="l1Bps" min="0" max="10000" step="1" value="2000">
-        </div>
-        <div class="form-group">
-            <label>l2_bps（+2分成）</label>
-            <input type="number" id="l2Bps" min="0" max="10000" step="1" value="400">
-        </div>
-    </div>
-
-    <div style="display:flex; gap:10px; align-items:center; margin-top: 10px;">
-        <button class="btn btn-primary" onclick="createPeriod()">创建结算期</button>
-        <span class="text-muted">说明：创建后需要点击该期的“生成”按钮写入快照/汇总/应缴。</span>
-    </div>
-
-    <div class="table-responsive" style="margin-top: 16px;">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>period_id</th>
-                    <th>统计周期</th>
-                    <th>缴费窗口</th>
-                    <th>coin_rate</th>
-                    <th>bps</th>
-                    <th>status</th>
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody id="periodTableBody">
-                <tr><td colspan="7" class="loading-cell">加载中...</td></tr>
-            </tbody>
-        </table>
     </div>
 </div>
 
-<div class="data-card">
-    <div class="card-header">
-        <h3>缴费记录审核</h3>
-        <div class="filter-group" style="display:flex; gap:8px;">
+<!-- 创建结算期卡片 -->
+<div class="admin-section-card create-period-card">
+    <div class="admin-section-header">
+        <h3>➕ 创建结算期</h3>
+    </div>
+    <div class="admin-section-body">
+        <form id="periodForm" class="period-form-grid">
+            <!-- 第一行：统计周期 -->
+            <div class="form-field-group">
+                <label for="periodStart">统计开始日 <span class="required-mark">*</span></label>
+                <input type="date" id="periodStart" required>
+            </div>
+            <div class="form-field-group">
+                <label for="periodEnd">统计结束日 <span class="required-mark">*</span></label>
+                <input type="date" id="periodEnd" required>
+            </div>
+
+            <!-- 第二行：缴费窗口 -->
+            <div class="form-field-group">
+                <label for="payStart">缴费开始日 <span class="required-mark">*</span></label>
+                <input type="date" id="payStart" required>
+            </div>
+            <div class="form-field-group">
+                <label for="payEnd">缴费截止日 <span class="required-mark">*</span></label>
+                <input type="date" id="payEnd" required>
+            </div>
+
+            <!-- 第三行：费率设置 -->
+            <div class="form-field-group">
+                <label for="coinRate">兑换比例</label>
+                <input type="number" id="coinRate" min="1" step="1" value="10000">
+                <span class="input-hint">coins = 1元</span>
+            </div>
+            <div class="form-field-group">
+                <label for="periodStatus">初始状态</label>
+                <select id="periodStatus">
+                    <option value="0">🟢 OPEN（开启中）</option>
+                    <option value="1">🟡 PAYING（缴费中）</option>
+                    <option value="2">🔴 CLOSED（已关闭）</option>
+                </select>
+            </div>
+
+            <!-- 第四行：分成比例 -->
+            <div class="form-field-group">
+                <label for="hostBps">号主自留</label>
+                <input type="number" id="hostBps" min="0" max="10000" step="1" value="6000">
+                <span class="input-hint">bps（基点，万分之一）</span>
+            </div>
+            <div class="form-field-group">
+                <label for="collectBps">平台应收</label>
+                <input type="number" id="collectBps" min="0" max="10000" step="1" value="4000">
+                <span class="input-hint">bps（应缴平台）</span>
+            </div>
+
+            <!-- 第五行：上下级分成 -->
+            <div class="form-field-group">
+                <label for="l1Bps">+1 级分成</label>
+                <input type="number" id="l1Bps" min="0" max="10000" step="1" value="2000">
+                <span class="input-hint">直接下级分成</span>
+            </div>
+            <div class="form-field-group">
+                <label for="l2Bps">+2 级分成</label>
+                <input type="number" id="l2Bps" min="0" max="10000" step="1" value="400">
+                <span class="input-hint">间接下级分成</span>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div class="form-actions-full">
+                <button type="button" class="btn-primary-action" onclick="createPeriod()">
+                    <span>➕</span> 创建结算期
+                </button>
+            </div>
+        </form>
+        <div class="form-hint">
+            💡 说明：创建后需要点击对应结算期的「生成」按钮来写入快照/汇总/应缴数据
+        </div>
+    </div>
+</div>
+
+<!-- 结算期列表 -->
+<div class="admin-section-card periods-list-card">
+    <div class="admin-section-header">
+        <h3>📅 结算期列表</h3>
+        <span class="record-count-badge" id="periodCountBadge">0 条</span>
+    </div>
+    <div class="admin-section-body">
+        <div class="table-wrapper">
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th class="col-id">ID</th>
+                        <th class="col-period">统计周期</th>
+                        <th class="col-window">缴费窗口</th>
+                        <th class="col-rate">费率</th>
+                        <th class="col-bps">分成比例</th>
+                        <th class="col-status">状态</th>
+                        <th class="col-actions">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="periodTableBody">
+                    <tr><td colspan="7" class="loading-cell">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- 缴费审核 -->
+<div class="admin-section-card audit-card">
+    <div class="admin-section-header">
+        <h3>🔍 缴费审核</h3>
+        <div class="filter-group">
             <select id="paymentPeriodFilter" onchange="loadPayments()">
                 <option value="">全部结算期</option>
             </select>
             <select id="paymentStatusFilter" onchange="loadPayments()">
                 <option value="">全部状态</option>
-                <option value="0">待审核</option>
-                <option value="1">已确认</option>
-                <option value="2">已驳回</option>
+                <option value="0">⏳ 待审核</option>
+                <option value="1">✅ 已确认</option>
+                <option value="2">❌ 已驳回</option>
             </select>
-            <button class="btn btn-secondary btn-sm" onclick="loadPayments()">刷新</button>
+            <button class="btn-filter" onclick="loadPayments()">🔄 刷新</button>
         </div>
     </div>
-
-    <div class="table-responsive">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>period_id</th>
-                    <th>payer_user_id</th>
-                    <th>金额</th>
-                    <th>方式</th>
-                    <th>凭证</th>
-                    <th>提交时间</th>
-                    <th>状态</th>
-                    <th>审核时间</th>
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody id="paymentAuditTableBody">
-                <tr><td colspan="10" class="loading-cell">加载中...</td></tr>
-            </tbody>
-        </table>
+    <div class="admin-section-body">
+        <div class="table-wrapper">
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th class="col-id">ID</th>
+                        <th class="col-period-id">期ID</th>
+                        <th class="col-user">用户ID</th>
+                        <th class="col-amount">金额</th>
+                        <th class="col-method">方式</th>
+                        <th class="col-proof">凭证</th>
+                        <th class="col-time">提交时间</th>
+                        <th class="col-status">状态</th>
+                        <th class="col-time">审核时间</th>
+                        <th class="col-actions">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="paymentAuditTableBody">
+                    <tr><td colspan="10" class="loading-cell">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* 页面头部 */
+.admin-header-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.25);
+}
+
+.admin-header-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.admin-header-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.admin-icon {
+    font-size: 48px;
+    background: rgba(255,255,255,0.2);
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.admin-header-title h3 {
+    margin: 0;
+    color: white;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.admin-subtitle {
+    margin: 4px 0 0 0;
+    color: rgba(255,255,255,0.8);
+    font-size: 14px;
+}
+
+.admin-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.btn-admin-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 10px;
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-admin-action:hover {
+    background: rgba(255,255,255,0.3);
+    transform: translateY(-1px);
+}
+
+/* 卡片通用样式 */
+.admin-section-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.admin-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    background: #f8fafc;
+}
+
+.admin-section-header h3 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.admin-section-body {
+    padding: 20px;
+}
+
+/* 创建结算期卡片 */
+.create-period-card {
+    border-left: 4px solid #667eea;
+}
+
+/* 结算期列表卡片 */
+.periods-list-card {
+    border-left: 4px solid #10b981;
+}
+
+/* 审核卡片 */
+.audit-card {
+    border-left: 4px solid #f59e0b;
+}
+
+/* 记录数量徽章 */
+.record-count-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    background: rgba(102, 126, 234, 0.1);
+    color: #6366f1;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+/* 表单网格 */
+.period-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px 20px;
+}
+
+.form-field-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-field-group label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-color);
+    margin-bottom: 6px;
+}
+
+.form-field-group input,
+.form-field-group select {
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.form-field-group input:focus,
+.form-field-group select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.required-mark {
+    color: #ef4444;
+    font-weight: 600;
+    margin-left: 2px;
+}
+
+.input-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.form-actions-full {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-start;
+    margin-top: 8px;
+}
+
+.btn-primary-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 10px;
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-primary-action:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.form-hint {
+    grid-column: 1 / -1;
+    padding: 10px 14px;
+    background: rgba(102, 126, 234, 0.08);
+    border-radius: 8px;
+    font-size: 13px;
+    color: #6366f1;
+    margin-top: 4px;
+}
+
+/* 筛选组 */
+.filter-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.filter-group select {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 13px;
+    background: white;
+}
+
+.filter-group select:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.btn-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 14px;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-filter:hover {
+    background: #f8fafc;
+    border-color: #667eea;
+}
+
+/* 表格样式 */
+.table-wrapper {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+}
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.admin-table thead {
+    background: linear-gradient(180deg, rgba(102, 126, 234, 0.08) 0%, rgba(102, 126, 234, 0.03) 100%);
+}
+
+.admin-table thead th {
+    text-align: left;
+    padding: 12px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #6366f1;
+    letter-spacing: 0.3px;
+    border-bottom: 2px solid rgba(102, 126, 234, 0.2);
+    white-space: nowrap;
+}
+
+.admin-table tbody td {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    color: var(--text-color);
+    vertical-align: middle;
+}
+
+.admin-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.admin-table tbody tr {
+    transition: all 0.15s ease;
+}
+
+.admin-table tbody tr:hover {
+    background: rgba(102, 126, 234, 0.04);
+}
+
+/* 列宽 */
+.admin-table thead th.col-id {
+    width: 60px;
+    text-align: center;
+}
+
+.admin-table thead th.col-period {
+    width: 160px;
+}
+
+.admin-table thead th.col-window {
+    width: 160px;
+}
+
+.admin-table thead th.col-rate {
+    width: 80px;
+    text-align: center;
+}
+
+.admin-table thead th.col-bps {
+    min-width: 200px;
+}
+
+.admin-table thead th.col-period-id {
+    width: 70px;
+    text-align: center;
+}
+
+.admin-table thead th.col-user {
+    width: 80px;
+    text-align: center;
+}
+
+.admin-table thead th.col-amount {
+    width: 100px;
+    text-align: right;
+}
+
+.admin-table thead th.col-method {
+    width: 80px;
+}
+
+.admin-table thead th.col-proof {
+    width: 70px;
+    text-align: center;
+}
+
+.admin-table thead th.col-time {
+    width: 140px;
+}
+
+.admin-table tbody td.col-id,
+.admin-table tbody td.col-period-id,
+.admin-table tbody td.col-user {
+    text-align: center;
+    font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.admin-table tbody td.col-amount {
+    text-align: right;
+    font-weight: 600;
+    color: #10b981;
+}
+
+/* 状态徽章 */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.status-badge.status-open {
+    background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+    color: #065f46;
+}
+
+.status-badge.status-closed {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    color: #991b1b;
+}
+
+.status-badge.status-pending {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    color: #92400e;
+}
+
+.status-badge.status-paid {
+    background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+    color: #065f46;
+}
+
+.status-badge.status-invalid {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    color: #991b1b;
+}
+
+/* 操作单元格 */
+.action-cell {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.action-cell .btn {
+    padding: 5px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.action-cell .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+}
+
+.action-cell .btn-primary:hover {
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+.action-cell .btn-secondary {
+    background: white;
+    color: #6366f1;
+    border: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.action-cell .btn-secondary:hover {
+    background: #6366f1;
+    color: white;
+    border-color: #6366f1;
+}
+
+/* 表格链接 */
+.admin-table a {
+    color: #6366f1;
+    text-decoration: none;
+}
+
+.admin-table a:hover {
+    text-decoration: underline;
+}
+
+/* 空状态 */
+.loading-cell,
+.empty-cell,
+.error-cell {
+    text-align: center !important;
+    padding: 40px 20px !important;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.loading-cell::before {
+    content: '';
+    display: block;
+    width: 32px;
+    height: 32px;
+    margin: 0 auto 12px;
+    border: 3px solid rgba(102, 126, 234, 0.1);
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.error-cell {
+    color: #ef4444;
+}
+</style>
 {% endblock %}
 
 {% block extra_js %}
@@ -155,12 +675,13 @@ async function loadPeriods() {
     const body = document.getElementById('periodTableBody');
     const periodFilter = document.getElementById('paymentPeriodFilter');
     body.innerHTML = '<tr><td colspan="7" class="loading-cell">加载中...</td></tr>';
-    periodFilter.innerHTML = '<option value=\"\">全部结算期</option>';
+    periodFilter.innerHTML = '<option value="">全部结算期</option>';
 
     try {
         const periods = await apiRequest('/settlement-periods');
         if (!Array.isArray(periods) || periods.length === 0) {
             body.innerHTML = '<tr><td colspan="7" class="empty-cell">暂无结算期</td></tr>';
+            updatePeriodCount(0);
             return;
         }
 
@@ -173,26 +694,34 @@ async function loadPeriods() {
 
         body.innerHTML = periods.map(p => {
             const st = periodStatusLabel(p.status);
-            const bps = `host:${p.host_bps} / collect:${p.collect_bps} / l1:${p.l1_bps} / l2:${p.l2_bps}`;
+            const bps = `<span style="font-size:11px;color:#64748b;">自留:${p.host_bps} | 平台:${p.collect_bps} | +1:${p.l1_bps} | +2:${p.l2_bps}</span>`;
             return `
                 <tr>
-                    <td>${p.period_id}</td>
+                    <td class="col-id">${p.period_id}</td>
                     <td>${p.period_start} ~ ${p.period_end}</td>
                     <td>${p.pay_start} ~ ${p.pay_end}</td>
-                    <td>${p.coin_rate}</td>
+                    <td style="text-align:center;">${p.coin_rate}</td>
                     <td>${bps}</td>
                     <td>${formatStatusBadge(st.type, st.text)}</td>
-                     <td class="action-cell">
-                         <button class="btn btn-primary btn-sm" onclick="generatePeriod(${p.period_id}, false)">生成</button>
-                         <button class="btn btn-secondary btn-sm" onclick="generatePeriod(${p.period_id}, true)">重跑</button>
-                         <button class="btn btn-secondary btn-sm" onclick="generateCommissions(${p.period_id})">补分成</button>
-                         <button class="btn btn-secondary btn-sm" onclick="unlockCommissions(${p.period_id})">解锁分成</button>
-                     </td>
-                 </tr>
-             `;
-         }).join('');
+                    <td class="action-cell">
+                        <button class="btn btn-primary btn-sm" onclick="generatePeriod(${p.period_id}, false)">生成</button>
+                        <button class="btn btn-secondary btn-sm" onclick="generatePeriod(${p.period_id}, true)">重跑</button>
+                        <button class="btn btn-secondary btn-sm" onclick="generateCommissions(${p.period_id})">补分成</button>
+                        <button class="btn btn-secondary btn-sm" onclick="unlockCommissions(${p.period_id})">解锁</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+        updatePeriodCount(periods.length);
     } catch (error) {
         body.innerHTML = `<tr><td colspan="7" class="error-cell">${error.message || '加载失败'}</td></tr>`;
+    }
+}
+
+function updatePeriodCount(count) {
+    const badge = document.getElementById('periodCountBadge');
+    if (badge) {
+        badge.textContent = `${count} 条`;
     }
 }
 
@@ -225,7 +754,7 @@ async function createPeriod() {
             method: 'POST',
             body: JSON.stringify(payload)
         });
-        showToast('结算期已创建/已存在', 'success');
+        showToast('结算期已创建', 'success');
         await loadPeriods();
     } catch (error) {
         showToast(error.message || '创建失败', 'error');
@@ -296,18 +825,18 @@ async function loadPayments() {
                     <button class="btn btn-primary btn-sm" onclick="confirmPayment(${p.payment_id})">确认</button>
                     <button class="btn btn-secondary btn-sm" onclick="rejectPayment(${p.payment_id})">驳回</button>
                   `
-                : '-';
+                : '<span style="color:#94a3b8;font-size:12px;">已处理</span>';
             return `
                 <tr>
-                    <td>${p.payment_id}</td>
-                    <td>${p.period_id}</td>
-                    <td>${p.payer_user_id}</td>
-                    <td>${p.amount_coins} coins</td>
+                    <td class="col-id">${p.payment_id}</td>
+                    <td class="col-period-id">${p.period_id}</td>
+                    <td class="col-user">${p.payer_user_id}</td>
+                    <td class="col-amount">${p.amount_coins.toLocaleString()} <span style="font-size:11px;color:#94a3b8;">coins</span></td>
                     <td>${p.method || '-'}</td>
-                    <td>${proof}</td>
-                    <td>${submittedAt}</td>
+                    <td style="text-align:center;">${proof}</td>
+                    <td style="font-size:12px;color:#64748b;">${submittedAt}</td>
                     <td>${formatStatusBadge(st.type, st.text)}</td>
-                    <td>${confirmedAt}</td>
+                    <td style="font-size:12px;color:#64748b;">${confirmedAt}</td>
                     <td class="action-cell">${action}</td>
                 </tr>
             `;

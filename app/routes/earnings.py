@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from typing import Dict, List, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, case, func
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
@@ -36,18 +36,10 @@ def _coins_to_yuan(coins: int) -> float:
     return round((coins or 0) / COINS_PER_YUAN, 2)
 
 
-def _income_coins(coins: int, rate_pct: int) -> int:
-    if coins <= 0 or rate_pct <= 0:
+def _apply_pct(coins: int, pct: int) -> int:
+    if coins <= 0 or pct <= 0:
         return 0
-    return int(coins) * int(rate_pct) // 100
-
-
-def _income_total_coins(me_coins: int, l1_coins: int, l2_coins: int) -> int:
-    return (
-        _income_coins(int(me_coins or 0), INCOME_RATE_ME_PCT)
-        + _income_coins(int(l1_coins or 0), INCOME_RATE_L1_PCT)
-        + _income_coins(int(l2_coins or 0), INCOME_RATE_L2_PCT)
-    )
+    return int(coins) * int(pct) // 100
 
 
 def _get_owned_env_ids(db: Session, user_id: int) -> List[int]:
@@ -105,105 +97,6 @@ def _get_env_remark_map(db: Session, env_ids: List[int]) -> Dict[int, str]:
         .all()
     )
     return {int(env_id): (remark or "") for env_id, remark in rows}
-
-
-def _classify_status(today_coins: int, avg7_coins: float) -> Dict[str, str]:
-    if today_coins <= 0:
-        return {"status": "no_earnings", "explanation": "今日无收益"}
-    if avg7_coins > 0 and today_coins < avg7_coins * 0.5:
-        drop_pct = (1 - (today_coins / avg7_coins)) * 100
-        return {"status": "abnormal", "explanation": f"低于近7日均值 {drop_pct:.0f}%"}
-    return {"status": "normal", "explanation": "表现稳定"}
-
-
-def _get_accounts_today_and_avg7(
-    db: Session,
-    env_ids: List[int],
-    today: date,
-) -> Dict[int, dict]:
-    if not env_ids:
-        return {}
-
-    yesterday = today - timedelta(days=1)
-    day7 = today - timedelta(days=7)
-
-    today_coins_expr = func.coalesce(
-        func.sum(
-            case(
-                (EarningRecord.stat_date == today, EarningRecord.coins_total),
-                else_=0,
-            )
-        ),
-        0,
-    )
-    avg7_coins_expr = func.coalesce(
-        func.avg(
-            case(
-                (
-                    and_(EarningRecord.stat_date >= day7, EarningRecord.stat_date <= yesterday),
-                    EarningRecord.coins_total,
-                ),
-                else_=None,
-            )
-        ),
-        0,
-    )
-
-    today_box_expr = func.coalesce(
-        func.sum(case((EarningRecord.stat_date == today, EarningRecord.coins_from_box), else_=0)),
-        0,
-    )
-    today_look_expr = func.coalesce(
-        func.sum(case((EarningRecord.stat_date == today, EarningRecord.coins_from_look), else_=0)),
-        0,
-    )
-    today_food_expr = func.coalesce(
-        func.sum(case((EarningRecord.stat_date == today, EarningRecord.coins_from_food), else_=0)),
-        0,
-    )
-    today_search_expr = func.coalesce(
-        func.sum(case((EarningRecord.stat_date == today, EarningRecord.coins_from_search), else_=0)),
-        0,
-    )
-
-    rows = (
-        db.query(
-            EarningRecord.env_id.label("env_id"),
-            today_coins_expr.label("today_coins"),
-            avg7_coins_expr.label("avg7_coins"),
-            today_box_expr.label("coins_from_box"),
-            today_look_expr.label("coins_from_look"),
-            today_food_expr.label("coins_from_food"),
-            today_search_expr.label("coins_from_search"),
-        )
-        .filter(
-            EarningRecord.env_id.in_(env_ids),
-            EarningRecord.stat_date.between(day7, today),
-        )
-        .group_by(EarningRecord.env_id)
-        .all()
-    )
-
-    result: Dict[int, dict] = {int(env_id): {"env_id": int(env_id)} for env_id in env_ids}
-    for row in rows:
-        env_id = int(row.env_id)
-        result[env_id] = {
-            "env_id": env_id,
-            "today_coins": int(row.today_coins or 0),
-            "avg7_coins": float(row.avg7_coins or 0),
-            "sources": {
-                "box": int(row.coins_from_box or 0),
-                "look": int(row.coins_from_look or 0),
-                "food": int(row.coins_from_food or 0),
-                "search": int(row.coins_from_search or 0),
-            },
-        }
-    for env_id, payload in result.items():
-        payload.setdefault("today_coins", 0)
-        payload.setdefault("avg7_coins", 0.0)
-        payload.setdefault("sources", {"box": 0, "look": 0, "food": 0, "search": 0})
-        payload.update(_classify_status(payload["today_coins"], payload["avg7_coins"]))
-    return result
 
 
 @router.get("/earnings", response_model=List[EarningRecordResponse])
@@ -273,6 +166,7 @@ async def get_earnings_stats(
 
 @router.get("/stats/earnings-hierarchy")
 async def get_earnings_hierarchy(
+    range_key: Optional[str] = Query(None, alias="range"),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
@@ -286,10 +180,26 @@ async def get_earnings_hierarchy(
     - 账号实体为 user_script_envs（env_id = user_script_envs.id），账号展示名来自 user_script_envs.remark
     - earning_records 记录的是金币；金额=coins/10000
     """
-    as_of_date = end_date or date.today()
+    normalized_range = (range_key or "").strip().lower()
+    today = date.today()
+    as_of_date = end_date or today
     end_date = as_of_date
-    if start_date is None:
-        start_date = end_date - timedelta(days=DEFAULT_PERIOD_DAYS - 1)
+
+    if normalized_range == "today":
+        start_date = end_date
+    elif normalized_range == "yesterday":
+        end_date = today - timedelta(days=1)
+        start_date = end_date
+    elif normalized_range == "7d":
+        end_date = as_of_date
+        start_date = end_date - timedelta(days=6)
+    elif normalized_range == "30d":
+        end_date = as_of_date
+        start_date = end_date - timedelta(days=29)
+    else:
+        if start_date is None:
+            start_date = end_date - timedelta(days=DEFAULT_PERIOD_DAYS - 1)
+
     if start_date > end_date:
         raise HTTPException(status_code=400, detail="起始日期不能大于结束日期")
 
@@ -310,40 +220,57 @@ async def get_earnings_hierarchy(
     l2_env_ids = _get_env_ids_for_users(db, l2_user_ids)
     scope_env_ids = _unique_in_order(my_env_ids + l1_env_ids + l2_env_ids)
 
-    yesterday = as_of_date - timedelta(days=1)
-
-    def sum_coins(env_ids: List[int], from_date: date, to_date: date) -> int:
-        if not env_ids:
-            return 0
-        return int(
-            db.query(func.coalesce(func.sum(EarningRecord.coins_total), 0))
-            .filter(
-                EarningRecord.env_id.in_(env_ids),
-                EarningRecord.stat_date.between(from_date, to_date),
+    if normalized_range == "all":
+        if not scope_env_ids:
+            start_date = today
+            end_date = today
+        else:
+            min_max_row = (
+                db.query(func.min(EarningRecord.stat_date), func.max(EarningRecord.stat_date))
+                .filter(EarningRecord.env_id.in_(scope_env_ids))
+                .first()
             )
-            .scalar()
-            or 0
-        )
+            min_date = min_max_row[0] if min_max_row else None
+            max_date = min_max_row[1] if min_max_row else None
+            if min_date and max_date:
+                start_date = min_date
+                end_date = max_date
+            elif max_date:
+                start_date = max_date
+                end_date = max_date
+            else:
+                start_date = today
+                end_date = today
+
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="起始日期不能大于结束日期")
 
     remark_map = _get_env_remark_map(db, scope_env_ids)
-    account_stats = _get_accounts_today_and_avg7(db, scope_env_ids, as_of_date)
+
+    period_coins_map: Dict[int, int] = {}
+    if scope_env_ids:
+        rows = (
+            db.query(EarningRecord.env_id, func.coalesce(func.sum(EarningRecord.coins_total), 0))
+            .filter(
+                EarningRecord.env_id.in_(scope_env_ids),
+                EarningRecord.stat_date.between(start_date, end_date),
+            )
+            .group_by(EarningRecord.env_id)
+            .all()
+        )
+        period_coins_map = {int(env_id): int(coins or 0) for env_id, coins in rows}
 
     def build_account_rows(env_ids: List[int]) -> List[dict]:
         rows: List[dict] = []
         for env_id in env_ids:
-            stat = account_stats.get(env_id, {"today_coins": 0, "avg7_coins": 0.0, "sources": {}})
+            coins = int(period_coins_map.get(env_id, 0))
             remark = remark_map.get(env_id) or f"账号#{env_id}"
-            today_coins = int(stat.get("today_coins", 0))
             rows.append(
                 {
                     "env_id": env_id,
                     "remark": remark,
-                    "today_coins": today_coins,
-                    "today_yuan": _coins_to_yuan(today_coins),
-                    "avg7_coins": float(stat.get("avg7_coins", 0.0)),
-                    "status": stat.get("status", "no_earnings"),
-                    "explanation": stat.get("explanation", "今日无收益"),
-                    "sources": stat.get("sources", {"box": 0, "look": 0, "food": 0, "search": 0}),
+                    "period_coins": coins,
+                    "period_yuan": _coins_to_yuan(coins),
                 }
             )
         return rows
@@ -351,44 +278,20 @@ async def get_earnings_hierarchy(
     l1_accounts = build_account_rows(l1_env_ids)
     l2_accounts = build_account_rows(l2_env_ids)
 
-    me_today_coins = sum(int(account_stats.get(env_id, {}).get("today_coins", 0)) for env_id in my_env_ids)
-    l1_today_coins = sum(a["today_coins"] for a in l1_accounts)
-    l2_today_coins = sum(a["today_coins"] for a in l2_accounts)
+    me_period_coins = sum(int(period_coins_map.get(env_id, 0)) for env_id in my_env_ids)
+    l1_period_coins = sum(int(period_coins_map.get(env_id, 0)) for env_id in l1_env_ids)
+    l2_period_coins = sum(int(period_coins_map.get(env_id, 0)) for env_id in l2_env_ids)
 
-    me_yesterday_coins = sum_coins(my_env_ids, yesterday, yesterday)
-    l1_yesterday_coins = sum_coins(l1_env_ids, yesterday, yesterday)
-    l2_yesterday_coins = sum_coins(l2_env_ids, yesterday, yesterday)
-
-    me_period_coins = sum_coins(my_env_ids, start_date, end_date)
-    l1_period_coins = sum_coins(l1_env_ids, start_date, end_date)
-    l2_period_coins = sum_coins(l2_env_ids, start_date, end_date)
-
-    me_period_income_coins = _income_coins(me_period_coins, INCOME_RATE_ME_PCT)
-    l1_period_income_coins = _income_coins(l1_period_coins, INCOME_RATE_L1_PCT)
-    l2_period_income_coins = _income_coins(l2_period_coins, INCOME_RATE_L2_PCT)
-    total_period_income_coins = me_period_income_coins + l1_period_income_coins + l2_period_income_coins
-
-    today_total_income_coins = _income_total_coins(me_today_coins, l1_today_coins, l2_today_coins)
-    yesterday_total_income_coins = _income_total_coins(me_yesterday_coins, l1_yesterday_coins, l2_yesterday_coins)
-    period_total_income_coins = _income_total_coins(me_period_coins, l1_period_coins, l2_period_coins)
-
-    today_total_gross_coins = me_today_coins + l1_today_coins + l2_today_coins
     period_total_gross_coins = me_period_coins + l1_period_coins + l2_period_coins
+    me_period_income_coins = _apply_pct(me_period_coins, INCOME_RATE_ME_PCT)
+    l1_period_income_coins = _apply_pct(l1_period_coins, INCOME_RATE_L1_PCT)
+    l2_period_income_coins = _apply_pct(l2_period_coins, INCOME_RATE_L2_PCT)
+    period_total_income_coins = me_period_income_coins + l1_period_income_coins + l2_period_income_coins
 
     def share_pct(part: int) -> float:
-        if total_period_income_coins <= 0:
+        if period_total_income_coins <= 0:
             return 0.0
-        return round(part / total_period_income_coins * 100, 2)
-
-    def abnormal_count(rows: List[dict]) -> int:
-        return sum(1 for row in rows if row.get("status") != "normal")
-
-    pct_change = None
-    if yesterday_total_income_coins > 0:
-        pct_change = round(
-            (today_total_income_coins - yesterday_total_income_coins) / yesterday_total_income_coins * 100,
-            2,
-        )
+        return round(part / period_total_income_coins * 100, 2)
 
     return {
         "coins_per_yuan": COINS_PER_YUAN,
@@ -401,26 +304,17 @@ async def get_earnings_hierarchy(
             "my_env_id": my_user_id,
             "my_remark": my_display_name,
         },
-        "today_overview": {
-            "total_coins": today_total_income_coins,
-            "total_yuan": _coins_to_yuan(today_total_income_coins),
-            "gross_total_coins": today_total_gross_coins,
-            "yesterday_coins": yesterday_total_income_coins,
-            "yesterday_yuan": _coins_to_yuan(yesterday_total_income_coins),
-            "pct_change": pct_change,
-        },
         "period_overview": {
             "total_coins": period_total_income_coins,
             "total_yuan": _coins_to_yuan(period_total_income_coins),
             "gross_total_coins": period_total_gross_coins,
+            "formula": "本周期总收入 = 我*100% + 一级下级*20% + 二级下级*4%",
         },
         "layers": {
             "me": {
                 "user_id": my_user_id,
                 "remark": my_display_name,
                 "account_count": len(my_env_ids),
-                "today_coins": me_today_coins,
-                "today_yuan": _coins_to_yuan(me_today_coins),
                 "period_coins": me_period_coins,
                 "period_yuan": _coins_to_yuan(me_period_coins),
                 "period_income_coins": me_period_income_coins,
@@ -429,25 +323,19 @@ async def get_earnings_hierarchy(
             },
             "l1": {
                 "count": len(l1_env_ids),
-                "today_coins": l1_today_coins,
-                "today_yuan": _coins_to_yuan(l1_today_coins),
                 "period_coins": l1_period_coins,
                 "period_yuan": _coins_to_yuan(l1_period_coins),
                 "period_income_coins": l1_period_income_coins,
                 "period_income_yuan": _coins_to_yuan(l1_period_income_coins),
                 "share_pct": share_pct(l1_period_income_coins),
-                "abnormal_count": abnormal_count(l1_accounts),
             },
             "l2": {
                 "count": len(l2_env_ids),
-                "today_coins": l2_today_coins,
-                "today_yuan": _coins_to_yuan(l2_today_coins),
                 "period_coins": l2_period_coins,
                 "period_yuan": _coins_to_yuan(l2_period_coins),
                 "period_income_coins": l2_period_income_coins,
                 "period_income_yuan": _coins_to_yuan(l2_period_income_coins),
                 "share_pct": share_pct(l2_period_income_coins),
-                "abnormal_count": abnormal_count(l2_accounts),
             },
         },
         "accounts": {"l1": l1_accounts, "l2": l2_accounts},

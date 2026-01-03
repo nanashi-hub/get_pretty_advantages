@@ -74,25 +74,29 @@
 <script>
 let referrals = [];
 let users = [];
+let userById = new Map();
 
-document.addEventListener('DOMContentLoaded', function() {
-    loadUsers();
-    loadReferrals();
+document.addEventListener('DOMContentLoaded', async function() {
+    await loadUsers();
+    await loadReferrals();
     
     // 检查URL参数
     const urlParams = new URLSearchParams(window.location.search);
     const userId = urlParams.get('user_id');
     if (userId) {
         document.getElementById('searchUser').value = userId;
-        setTimeout(() => searchReferrals(), 500);
+        searchReferrals();
     }
 });
 
 async function loadUsers() {
     try {
         users = await apiRequest('/users');
+        userById = new Map((users || []).map(u => [Number(u.id), u]));
     } catch (error) {
         console.error('加载用户失败:', error);
+        users = [];
+        userById = new Map();
     }
 }
 
@@ -115,9 +119,9 @@ function renderReferrals(data) {
     }
     
     tbody.innerHTML = data.map(ref => {
-        const user = users.find(u => u.id === ref.user_id);
-        const inviter1 = users.find(u => u.id === ref.inviter_level1);
-        const inviter2 = users.find(u => u.id === ref.inviter_level2);
+        const user = userById.get(Number(ref.user_id));
+        const inviter1 = userById.get(Number(ref.inviter_level1));
+        const inviter2 = userById.get(Number(ref.inviter_level2));
         
         return `
             <tr onclick="showChain(${ref.user_id})" style="cursor: pointer;">
@@ -153,7 +157,7 @@ function searchReferrals() {
     }
     
     const filtered = referrals.filter(ref => {
-        const user = users.find(u => u.id === ref.user_id);
+        const user = userById.get(Number(ref.user_id));
         return ref.user_id.toString() === keyword ||
                (user && user.username.toLowerCase().includes(keyword));
     });
@@ -168,19 +172,20 @@ function searchReferrals() {
 
 function showChain(userId) {
     const container = document.getElementById('referralChain');
-    const ref = referrals.find(r => r.user_id === userId);
-    const user = users.find(u => u.id === userId);
+    const userIdNum = Number(userId);
+    const ref = referrals.find(r => Number(r.user_id) === userIdNum);
+    const user = userById.get(userIdNum);
     
     if (!ref) {
         container.innerHTML = '<p class="info-text">该用户无推广关系</p>';
         return;
     }
     
-    const inviter1 = users.find(u => u.id === ref.inviter_level1);
-    const inviter2 = users.find(u => u.id === ref.inviter_level2);
+    const inviter1 = userById.get(Number(ref.inviter_level1));
+    const inviter2 = userById.get(Number(ref.inviter_level2));
     
     // 查找该用户邀请的下级
-    const myInvitees = referrals.filter(r => r.inviter_level1 === userId);
+    const myInvitees = referrals.filter(r => Number(r.inviter_level1) === userIdNum);
     
     container.innerHTML = `
         <div class="chain-diagram">
@@ -217,7 +222,7 @@ function showChain(userId) {
                     <span class="invitees-label">我邀请的用户 (${myInvitees.length}人)</span>
                     <div class="invitees-list">
                         ${myInvitees.slice(0, 5).map(inv => {
-                            const invUser = users.find(u => u.id === inv.user_id);
+                            const invUser = userById.get(Number(inv.user_id));
                             return `<span class="invitee-tag">${invUser ? invUser.username : inv.user_id}</span>`;
                         }).join('')}
                         ${myInvitees.length > 5 ? `<span class="invitee-more">+${myInvitees.length - 5}人</span>` : ''}

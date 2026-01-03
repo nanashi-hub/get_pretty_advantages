@@ -5,93 +5,129 @@
 {% block page_title %}结算中心{% endblock %}
 
 {% block content %}
-<div class="data-card">
-    <div class="card-header">
-        <h3>本期结算</h3>
-        <div class="filter-group">
-            <button class="btn btn-secondary btn-sm" onclick="loadSettlementCenter()">刷新</button>
+<!-- 本期结算概览 -->
+<div class="settlement-header-card">
+    <div class="settlement-header-info">
+        <div class="settlement-header-title">
+            <span class="settlement-icon">📊</span>
+            <div>
+                <h3>本期结算</h3>
+                <p class="settlement-subtitle">当前结算期信息</p>
+            </div>
+        </div>
+        <div class="settlement-meta-tags">
+            <span class="meta-tag">
+                <span class="meta-icon">📅</span>
+                统计周期：<strong id="settlementPeriodRange">-</strong>
+            </span>
+            <span class="meta-tag">
+                <span class="meta-icon">⏰</span>
+                缴费窗口：<strong id="settlementPayRange">-</strong>
+            </span>
+            <span class="meta-tag">
+                <span class="meta-icon">💱</span>
+                兑率：<strong id="settlementCoinRate">10000</strong> coins = 1 元
+            </span>
         </div>
     </div>
+    <button class="btn-refresh" onclick="loadSettlementCenter()">
+        <span>🔄</span> 刷新
+    </button>
+</div>
 
-    <div id="settlementEmpty" class="empty-cell" style="display:none;">当前暂无结算期</div>
+<div id="settlementEmpty" class="empty-state" style="display:none;">
+    <span class="empty-icon">📭</span>
+    <p>当前暂无结算期</p>
+</div>
 
-    <div id="settlementContent" style="display:none;">
-        <div style="margin-bottom: 12px;">
-            <div class="text-muted">统计周期：<span id="settlementPeriodRange">-</span></div>
-            <div class="text-muted">缴费窗口：<span id="settlementPayRange">-</span></div>
-            <div class="text-muted">兑率：<span id="settlementCoinRate">10000</span> coins = 1 元</div>
+<div id="settlementContent" style="display:none;">
+    <!-- 收益统计卡片 -->
+    <div class="settlement-stats-grid">
+        <div class="settlement-stat-card settlement-stat-gross">
+            <div class="stat-icon-bg">💰</div>
+            <div class="stat-content">
+                <span class="stat-value" id="settlementGrossYuan">￥0.00</span>
+                <span class="stat-label">本期总收益</span>
+                <span class="stat-sub" id="settlementGrossCoins">0 coins</span>
+            </div>
         </div>
-
-        <div class="stats-overview">
-            <div class="stat-card">
-                <div class="stat-content">
-                    <span class="stat-value" id="settlementGrossYuan">￥0.00</span>
-                    <span class="stat-label">我的上月总收益（展示）</span>
-                    <span class="text-muted" id="settlementGrossCoins">0 coins</span>
-                </div>
+        <div class="settlement-stat-card settlement-stat-due">
+            <div class="stat-icon-bg">📤</div>
+            <div class="stat-content">
+                <span class="stat-value" id="settlementDueYuan">￥0.00</span>
+                <span class="stat-label">本期应缴</span>
+                <span class="stat-sub" id="settlementDueCoins">0 coins</span>
             </div>
-            <div class="stat-card">
-                <div class="stat-content">
-                    <span class="stat-value" id="settlementDueYuan">￥0.00</span>
-                    <span class="stat-label">本期应缴（40%）</span>
-                    <span class="text-muted" id="settlementDueCoins">0 coins</span>
-                </div>
+        </div>
+        <div class="settlement-stat-card settlement-stat-paid">
+            <div class="stat-icon-bg">✅</div>
+            <div class="stat-content">
+                <span class="stat-value" id="settlementPaidYuan">￥0.00</span>
+                <span class="stat-label">已缴金额</span>
+                <span class="stat-sub" id="settlementPaidCoins">0 coins</span>
             </div>
-            <div class="stat-card">
-                <div class="stat-content">
-                    <span class="stat-value" id="settlementPaidYuan">￥0.00</span>
-                    <span class="stat-label">已缴</span>
-                    <span class="text-muted" id="settlementPaidCoins">0 coins</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-content">
-                    <span class="stat-value" id="settlementStatusText">-</span>
-                    <span class="stat-label">状态</span>
-                    <span id="settlementStatusBadge">-</span>
-                </div>
+        </div>
+        <div class="settlement-stat-card settlement-stat-status">
+            <div class="stat-icon-bg">📋</div>
+            <div class="stat-content">
+                <span class="stat-value" id="settlementStatusText">-</span>
+                <span class="stat-label">缴费状态</span>
+                <span class="stat-sub" id="settlementStatusBadge">-</span>
             </div>
         </div>
     </div>
 </div>
 
-<div class="data-card" id="settlementPayFormCard" style="display:none;">
-    <div class="card-header">
-        <h3>提交缴费</h3>
-        <div class="filter-group">
-            <button class="btn btn-primary btn-sm" onclick="submitSettlementPayment()">提交</button>
-        </div>
+<!-- 提交缴费表单 -->
+<div class="settlement-form-card" id="settlementPayFormCard" style="display:none;">
+    <div class="settlement-form-header">
+        <h3>💳 提交缴费</h3>
+        <button class="btn-submit" onclick="submitSettlementPayment()">提交缴费</button>
     </div>
-
-    <div class="form-row">
-        <div class="form-group">
-            <label>缴费金额（coins）<span class="required">*</span></label>
-            <input type="number" id="paymentAmountCoins" min="1" step="1" placeholder="请输入本次缴费金币数">
-            <small>系统将以 coins 记账；展示时按本期兑率换算人民币。</small>
+    <div class="settlement-form-body">
+        <div class="settlement-form-grid">
+            <div class="settlement-form-group">
+                <label>缴费金额（coins）<span class="required">*</span></label>
+                <input type="number" id="paymentAmountCoins" min="1" step="1" placeholder="请输入本次缴费金币数">
+                <span class="input-hint">系统将以 coins 记账；展示时按本期兑率换算人民币</span>
+            </div>
+            <div class="settlement-form-group">
+                <label>缴费方式</label>
+                <select id="paymentMethod">
+                    <option value="manual">🔄 人工转账</option>
+                    <option value="alipay">💙 支付宝</option>
+                    <option value="wechat">💚 微信支付</option>
+                    <option value="bank">🏦 银行卡</option>
+                </select>
+                <div class="payment-method-qrcode" id="alipayQrcodeBox" style="display:none;">
+                    <div class="payment-method-qrcode-wrapper">
+                        <img id="alipayQrcodeImage" src="" alt="支付宝收款码" style="display:none;" />
+                        <div class="payment-method-qrcode-fallback" id="alipayQrcodeFallback" style="display:none;">
+                            <p class="fallback-title">未配置支付宝收款码</p>
+                            <p class="fallback-hint">请联系管理员在【系统管理 → 支付宝配置】中设置收款码</p>
+                        </div>
+                    </div>
+                    <div class="payment-method-qrcode-hint">
+                        使用支付宝扫码完成转账后，请填写凭证链接并提交缴费。
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="form-group">
-            <label>缴费方式</label>
-            <select id="paymentMethod">
-                <option value="manual">人工</option>
-                <option value="alipay">支付宝</option>
-                <option value="wechat">微信</option>
-                <option value="bank">银行卡</option>
-            </select>
+        <div class="settlement-form-group">
+            <label>凭证链接（可选）</label>
+            <input type="text" id="paymentProofUrl" maxlength="512" placeholder="如有，可填写截图/云盘链接等">
         </div>
+        <div class="settlement-form-hint" id="paymentHint"></div>
     </div>
-    <div class="form-group">
-        <label>凭证链接（可选）</label>
-        <input type="text" id="paymentProofUrl" maxlength="512" placeholder="如有，可填写截图/云盘链接等">
-    </div>
-    <div class="text-muted" id="paymentHint"></div>
 </div>
 
-<div class="data-card">
-    <div class="card-header">
-        <h3>缴费记录</h3>
+<!-- 缴费记录表格 -->
+<div class="settlement-table-card">
+    <div class="settlement-table-header">
+        <h3>📜 缴费记录</h3>
     </div>
     <div class="table-responsive">
-        <table class="data-table">
+        <table class="settlement-table">
             <thead>
                 <tr>
                     <th>ID</th>
@@ -110,19 +146,562 @@
         </table>
     </div>
 </div>
-{% endblock %}
 
-{% block extra_js %}
+<style>
+/* 结算中心整体样式 */
+.settlement-header-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.25);
+}
+
+.settlement-header-info {
+    flex: 1;
+}
+
+.settlement-header-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.settlement-icon {
+    font-size: 48px;
+    background: rgba(255,255,255,0.2);
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.settlement-header-title h3 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    color: white;
+}
+
+.settlement-subtitle {
+    margin: 4px 0 0 0;
+    font-size: 14px;
+    color: rgba(255,255,255,0.8);
+}
+
+.settlement-meta-tags {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.meta-tag {
+    background: rgba(255,255,255,0.15);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    backdrop-filter: blur(10px);
+}
+
+.meta-icon {
+    font-size: 14px;
+}
+
+.meta-tag strong {
+    font-weight: 600;
+}
+
+.btn-refresh {
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+
+.btn-refresh:hover {
+    background: rgba(255,255,255,0.3);
+    transform: translateY(-1px);
+}
+
+.btn-refresh:active {
+    transform: translateY(0);
+}
+
+/* 空状态 */
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    background: var(--bg-color);
+    border-radius: 16px;
+    border: 1px dashed var(--border-color);
+}
+
+.empty-icon {
+    font-size: 64px;
+    display: block;
+    margin-bottom: 16px;
+}
+
+.empty-state p {
+    font-size: 16px;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+/* 统计卡片网格 */
+.settlement-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 24px;
+}
+
+.settlement-stat-card {
+    background: var(--bg-color);
+    border-radius: 16px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border: 1px solid var(--border-color);
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+}
+
+.settlement-stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+}
+
+.settlement-stat-gross::before {
+    background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.settlement-stat-due::before {
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.settlement-stat-paid::before {
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+
+.settlement-stat-status::before {
+    background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+}
+
+.settlement-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+}
+
+.stat-icon-bg {
+    font-size: 36px;
+    width: 56px;
+    height: 56px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.settlement-stat-gross .stat-icon-bg {
+    background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+}
+
+.settlement-stat-due .stat-icon-bg {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+}
+
+.settlement-stat-paid .stat-icon-bg {
+    background: linear-gradient(135deg, #dbeafe, #bfdbfe);
+}
+
+.settlement-stat-status .stat-icon-bg {
+    background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+}
+
+.settlement-stat-card .stat-content {
+    display: flex;
+    flex-direction: column;
+}
+
+.settlement-stat-card .stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-color);
+    line-height: 1.2;
+}
+
+.settlement-stat-card .stat-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 4px 0;
+}
+
+.settlement-stat-card .stat-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* 表单卡片 */
+.settlement-form-card {
+    background: var(--bg-color);
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+    margin-bottom: 24px;
+    overflow: hidden;
+}
+
+.settlement-form-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(0,0,0,0.02);
+}
+
+.settlement-form-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.btn-submit {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    border: none;
+    color: white;
+    padding: 10px 24px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.btn-submit:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.settlement-form-body {
+    padding: 24px;
+}
+
+.settlement-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.settlement-form-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.settlement-form-group label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-color);
+    margin-bottom: 8px;
+}
+
+.settlement-form-group .required {
+    color: #ef4444;
+}
+
+.settlement-form-group input,
+.settlement-form-group select {
+    padding: 12px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    font-size: 14px;
+    background: var(--bg-color);
+    transition: all 0.2s;
+}
+
+.settlement-form-group input:focus,
+.settlement-form-group select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.input-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 6px;
+}
+
+.payment-method-qrcode {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1px dashed rgba(102, 126, 234, 0.35);
+    background: rgba(102, 126, 234, 0.06);
+}
+
+.payment-method-qrcode-wrapper {
+    display: flex;
+    justify-content: center;
+}
+
+.payment-method-qrcode img {
+    width: 180px;
+    height: 180px;
+    object-fit: contain;
+    border-radius: 12px;
+    background: #fff;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.payment-method-qrcode-fallback {
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.payment-method-qrcode-fallback .fallback-title {
+    margin: 0;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.payment-method-qrcode-fallback .fallback-hint {
+    margin: 6px 0 0 0;
+    font-size: 12px;
+}
+
+.payment-method-qrcode-hint {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+.settlement-form-hint {
+    padding: 12px 16px;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 10px;
+    font-size: 14px;
+    color: #667eea;
+}
+
+/* 表格卡片 */
+.settlement-table-card {
+    background: var(--bg-color);
+    border-radius: 16px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.settlement-table-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(0,0,0,0.02);
+}
+
+.settlement-table-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.settlement-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.settlement-table thead th {
+    text-align: left;
+    padding: 14px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(0,0,0,0.02);
+}
+
+.settlement-table tbody td {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 14px;
+}
+
+.settlement-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.settlement-table tbody tr:hover {
+    background: rgba(0,0,0,0.02);
+}
+
+.loading-cell, .empty-cell, .error-cell {
+    text-align: center !important;
+    padding: 40px 20px !important;
+    color: var(--text-muted);
+}
+
+/* 状态徽章 */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-pending {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.status-paid {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.status-invalid, .status-rejected {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.status-open {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.status-closed {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+/* 响应式适配 */
+@media (max-width: 1200px) {
+    .settlement-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .settlement-header-card {
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .settlement-header-title {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .settlement-meta-tags {
+        justify-content: center;
+    }
+
+    .btn-refresh {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .settlement-stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .settlement-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .settlement-form-header {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .btn-submit {
+        width: 100%;
+    }
+
+    .settlement-table {
+        font-size: 12px;
+    }
+
+    .settlement-table thead th,
+    .settlement-table tbody td {
+        padding: 10px 12px;
+    }
+}
+</style>
+
 <script>
 let currentPeriodId = null;
 let currentCoinRate = 10000;
 let currentDueCoins = 0;
 let currentPaidCoins = 0;
 let currentPayWindow = null;
+let currentAlipayQrcodeUrl = null;
 
 function coinsToYuan(coins) {
     const rate = currentCoinRate > 0 ? currentCoinRate : 10000;
     return (Number(coins || 0) / rate).toFixed(2);
+}
+
+function updatePaymentMethodQrcode() {
+    const methodEl = document.getElementById('paymentMethod');
+    const boxEl = document.getElementById('alipayQrcodeBox');
+    const imgEl = document.getElementById('alipayQrcodeImage');
+    const fallbackEl = document.getElementById('alipayQrcodeFallback');
+    if (!methodEl || !boxEl) return;
+
+    if (methodEl.value !== 'alipay') {
+        boxEl.style.display = 'none';
+        return;
+    }
+
+    boxEl.style.display = '';
+    if (!imgEl || !fallbackEl) return;
+
+    if (currentAlipayQrcodeUrl) {
+        imgEl.style.display = '';
+        fallbackEl.style.display = 'none';
+        imgEl.src = currentAlipayQrcodeUrl;
+    } else {
+        imgEl.style.display = 'none';
+        fallbackEl.style.display = '';
+        imgEl.removeAttribute('src');
+    }
+}
+
+function onAlipayQrcodeError() {
+    const imgEl = document.getElementById('alipayQrcodeImage');
+    const fallbackEl = document.getElementById('alipayQrcodeFallback');
+    if (imgEl) imgEl.style.display = 'none';
+    if (fallbackEl) fallbackEl.style.display = '';
 }
 
 function formatStatusBadge(type, text) {
@@ -140,7 +719,7 @@ function payableStatusLabel(status, today, payEnd) {
 function paymentStatusLabel(status) {
     const s = Number(status);
     if (s === 1) return { type: 'paid', text: '已确认' };
-    if (s === 2) return { type: 'invalid', text: '已驳回' };
+    if (s === 2) return { type: 'rejected', text: '已驳回' };
     return { type: 'pending', text: '待审核' };
 }
 
@@ -170,11 +749,13 @@ async function loadSettlementCenter() {
         const income = payload.income || null;
         const payable = payload.payable || null;
         const payments = Array.isArray(payload.payments) ? payload.payments : [];
+        currentAlipayQrcodeUrl = payload.alipay_qrcode_url || null;
 
         if (!period) {
             currentPeriodId = null;
             emptyEl.style.display = '';
             tableBody.innerHTML = '<tr><td colspan="8" class="empty-cell">暂无数据</td></tr>';
+            updatePaymentMethodQrcode();
             return;
         }
 
@@ -215,9 +796,10 @@ async function loadSettlementCenter() {
         if (remaining > 0) {
             payFormEl.style.display = '';
             hintEl.textContent = inWindow
-                ? `剩余应缴：${remaining} coins（￥${coinsToYuan(remaining)}）`
-                : `当前不在缴费窗口（${period.pay_start}~${period.pay_end}），提交会被拒绝。`;
+                ? `💡 剩余应缴：${remaining} coins（￥${coinsToYuan(remaining)}）`
+                : `⚠️ 当前不在缴费窗口（${period.pay_start}~${period.pay_end}），提交会被拒绝。`;
         }
+        updatePaymentMethodQrcode();
 
         if (payments.length === 0) {
             tableBody.innerHTML = '<tr><td colspan="8" class="empty-cell">暂无缴费记录</td></tr>';
@@ -285,6 +867,10 @@ async function submitSettlementPayment() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    const methodEl = document.getElementById('paymentMethod');
+    const qrcodeImgEl = document.getElementById('alipayQrcodeImage');
+    if (methodEl) methodEl.addEventListener('change', updatePaymentMethodQrcode);
+    if (qrcodeImgEl) qrcodeImgEl.addEventListener('error', onAlipayQrcodeError);
     loadSettlementCenter();
 });
 </script>

@@ -127,8 +127,44 @@ async function apiRequest(url, options = {}) {
 
 // ==================== 侧边栏控制 ====================
 
+function initSidebarScrollPersistence(sidebar) {
+    const sidebarNav = sidebar.querySelector('.sidebar-nav');
+    if (!sidebarNav) return;
+
+    const storageKey = 'sidebarNavScrollTop';
+    const saved = sessionStorage.getItem(storageKey);
+    if (saved !== null) {
+        const top = Number.parseInt(saved, 10);
+        if (Number.isFinite(top) && top >= 0) {
+            requestAnimationFrame(() => {
+                sidebarNav.scrollTop = top;
+            });
+        }
+    }
+
+    let saveTimer = null;
+    const persist = () => {
+        sessionStorage.setItem(storageKey, String(sidebarNav.scrollTop));
+    };
+
+    sidebarNav.addEventListener('scroll', () => {
+        if (saveTimer) window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(persist, 150);
+    }, { passive: true });
+
+    // 点击导航前先持久化滚动位置，避免快速跳转丢失
+    sidebarNav.addEventListener('click', (e) => {
+        const link = e.target && e.target.closest ? e.target.closest('a') : null;
+        if (link) persist();
+    }, true);
+
+    window.addEventListener('beforeunload', persist);
+}
+
 function initSidebar() {
     const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+
     const mobileMenuBtn = document.getElementById('mobileMenuBtn');
     const sidebarToggle = document.getElementById('sidebarToggle');
     
@@ -147,11 +183,14 @@ function initSidebar() {
     // 点击侧边栏外部关闭（移动端）
     document.addEventListener('click', (e) => {
         if (window.innerWidth <= 768) {
-            if (!sidebar.contains(e.target) && !mobileMenuBtn.contains(e.target)) {
+            if (!sidebar.contains(e.target) && (!mobileMenuBtn || !mobileMenuBtn.contains(e.target))) {
                 sidebar.classList.remove('open');
             }
         }
     });
+
+    // 记住侧边栏滚动位置，页面跳转后自动恢复
+    initSidebarScrollPersistence(sidebar);
 }
 
 // ==================== 用户信息加载 ====================

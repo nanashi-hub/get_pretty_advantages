@@ -1,4 +1,4 @@
-# 快手账号管理平台（get_pretty_advantages）
+# 快手脚本平台（get_pretty_advantages）
 
 基于 FastAPI + MySQL 的快手账号管理平台，提供账号环境配置、收益统计、结算/缴费、分成钱包、提现审核等能力。
 

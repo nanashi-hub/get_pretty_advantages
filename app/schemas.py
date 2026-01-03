@@ -529,6 +529,7 @@ class SettlementMeResponse(BaseModel):
     income: Optional[SettlementUserIncomeResponse] = None
     payable: Optional[SettlementUserPayableResponse] = None
     payments: List[SettlementPaymentResponse] = []
+    alipay_qrcode_url: Optional[str] = None
 
 
 # ==================== 钱包相关 ====================
@@ -619,7 +620,7 @@ class DashboardStats(BaseModel):
     total_ks_accounts: int = 0
     total_configs: int = 0
     total_ql_instances: int = 0
-    today_coins: int = 0
+    yesterday_coins: int = 0
     week_coins: int = 0
     pending_settlements: int = 0
     wallet_balance: float = 0.0

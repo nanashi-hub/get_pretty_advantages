@@ -21,6 +21,7 @@
                     <button type="button" class="btn btn-secondary btn-sm" data-range="yesterday">昨日</button>
                     <button type="button" class="btn btn-secondary btn-sm" data-range="7d">近7天</button>
                     <button type="button" class="btn btn-secondary btn-sm" data-range="30d">近30天</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-range="all">全部</button>
                 </div>
             </div>
             <div class="filter-group">
@@ -39,19 +40,20 @@
             <div class="stat-card highlight">
                 <div class="stat-icon">¥</div>
                 <div class="stat-content">
-                    <span class="stat-value" id="todayTotalYuan">¥0.00</span>
-                    <span class="stat-label">当日总收入（含下级分成）</span>
-                    <small class="text-muted" id="todayTotalCoins">0 金币</small>
-                    <small class="text-muted" id="todayCompare">较昨日 —</small>
+                    <span class="stat-value" id="ownedTotalYuan">¥0.00</span>
+                    <span class="stat-label">名下账号收入</span>
+                    <small class="text-muted" id="ownedTotalCoins">0 金币</small>
+                    <small class="text-muted" id="ownedRangeLabel">周期 -</small>
                 </div>
             </div>
             <div class="stat-card">
                 <div class="stat-icon">Σ</div>
                 <div class="stat-content">
                     <span class="stat-value" id="periodTotalYuan">¥0.00</span>
-                    <span class="stat-label">本周期收入（含下级分成）</span>
+                    <span class="stat-label">本周期总收入</span>
                     <small class="text-muted" id="periodTotalCoins">0 金币</small>
                     <small class="text-muted" id="periodRangeLabel">周期 -</small>
+                    <small class="text-muted" id="periodFormulaLabel">本周期总收入 = 我*100% + 一级下级*20% + 二级下级*4%</small>
                 </div>
             </div>
         </div>
@@ -68,7 +70,7 @@
                             <div class="stat-content">
                                 <span class="stat-value" id="mePeriodYuan">¥0.00</span>
                                 <span class="stat-label" id="meTitle">我自己</span>
-                                <small class="text-muted" id="meMeta">0 金币 · 贡献 0%</small>
+                                <small class="text-muted" id="meMeta">折算 0 金币 · 贡献 0%</small>
                             </div>
                         </div>
                         <div class="stat-card">
@@ -76,7 +78,7 @@
                             <div class="stat-content">
                                 <span class="stat-value" id="l1PeriodYuan">¥0.00</span>
                                 <span class="stat-label">一级下级</span>
-                                <small class="text-muted" id="l1Meta">账号 0 个 · 贡献 0% · 状态正常</small>
+                                <small class="text-muted" id="l1Meta">折算 0 金币 · 账号 0 个 · 贡献 0%</small>
                             </div>
                         </div>
                         <div class="stat-card">
@@ -84,7 +86,7 @@
                             <div class="stat-content">
                                 <span class="stat-value" id="l2PeriodYuan">¥0.00</span>
                                 <span class="stat-label">二级下级</span>
-                                <small class="text-muted" id="l2Meta">账号 0 个 · 贡献 0% · 状态正常</small>
+                                <small class="text-muted" id="l2Meta">折算 0 金币 · 账号 0 个 · 贡献 0%</small>
                             </div>
                         </div>
                     </div>
@@ -95,22 +97,19 @@
                         <details id="l1Details">
                             <summary>
                                 <span id="l1SummaryTitle">一级下级账号（0）</span>
-                                <span class="summary-right" id="l1SummaryRight">当日 ¥0.00 · 异常/无收益 0</span>
+                                <span class="summary-right" id="l1SummaryRight">周期 ¥0.00 · 0 金币</span>
                             </summary>
                             <div class="table-responsive">
                                 <table class="data-table">
                                     <thead>
                                         <tr>
                                             <th>账号</th>
-                                            <th style="width:140px;">当日收益</th>
+                                            <th style="width:140px;">周期收益</th>
                                             <th style="width:120px;">金币</th>
-                                            <th style="width:100px;">状态</th>
-                                            <th>说明</th>
-                                            <th style="width:200px;">来源简报</th>
                                         </tr>
                                     </thead>
                                     <tbody id="l1TableBody">
-                                        <tr><td colspan="6" class="loading-cell">加载中...</td></tr>
+                                        <tr><td colspan="3" class="loading-cell">加载中...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -119,22 +118,19 @@
                         <details id="l2Details">
                             <summary>
                                 <span id="l2SummaryTitle">二级下级账号（0）</span>
-                                <span class="summary-right" id="l2SummaryRight">当日 ¥0.00 · 异常/无收益 0</span>
+                                <span class="summary-right" id="l2SummaryRight">周期 ¥0.00 · 0 金币</span>
                             </summary>
                             <div class="table-responsive">
                                 <table class="data-table">
                                     <thead>
                                         <tr>
                                             <th>账号</th>
-                                            <th style="width:140px;">当日收益</th>
+                                            <th style="width:140px;">周期收益</th>
                                             <th style="width:120px;">金币</th>
-                                            <th style="width:100px;">状态</th>
-                                            <th>说明</th>
-                                            <th style="width:200px;">来源简报</th>
                                         </tr>
                                     </thead>
                                     <tbody id="l2TableBody">
-                                        <tr><td colspan="6" class="loading-cell">加载中...</td></tr>
+                                        <tr><td colspan="3" class="loading-cell">加载中...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -212,6 +208,11 @@ function applyQuickRange(rangeKey) {
         start.setDate(start.getDate() - 6);
     } else if (rangeKey === '30d') {
         start.setDate(start.getDate() - 29);
+    } else if (rangeKey === 'all') {
+        currentRangeKey = rangeKey;
+        setActiveQuickRange(rangeKey);
+        loadHierarchy();
+        return;
     }
 
     currentRangeKey = rangeKey;
@@ -246,7 +247,9 @@ async function loadHierarchy() {
     try {
         const startDate = document.getElementById('startDate').value;
         const endDate = document.getElementById('endDate').value;
-        const url = `/stats/earnings-hierarchy?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
+        const url = currentRangeKey === 'all'
+            ? '/stats/earnings-hierarchy?range=all'
+            : `/stats/earnings-hierarchy?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`;
         const data = await apiRequest(url);
         if (requestSeq !== hierarchyRequestSeq) return;
         renderHierarchy(data);
@@ -261,26 +264,27 @@ async function loadHierarchy() {
 
 function setLoadingState(isLoading) {
     if (!isLoading) return;
-    document.getElementById('l1TableBody').innerHTML = '<tr><td colspan=\"6\" class=\"loading-cell\">加载中...</td></tr>';
-    document.getElementById('l2TableBody').innerHTML = '<tr><td colspan=\"6\" class=\"loading-cell\">加载中...</td></tr>';
+    document.getElementById('l1TableBody').innerHTML = '<tr><td colspan=\"3\" class=\"loading-cell\">加载中...</td></tr>';
+    document.getElementById('l2TableBody').innerHTML = '<tr><td colspan=\"3\" class=\"loading-cell\">加载中...</td></tr>';
 }
 
 function renderHierarchy(data) {
     const period = data.period || {};
     const viewer = data.viewer || {};
-    const todayOverview = data.today_overview || {};
     const periodOverview = data.period_overview || {};
     const layers = data.layers || {};
+
+    if (period.start_date && period.end_date) {
+        document.getElementById('startDate').value = period.start_date;
+        document.getElementById('endDate').value = period.end_date;
+    }
 
     const userId = viewer.my_user_id || viewer.my_env_id || '-';
     const displayName = viewer.my_display_name || viewer.my_remark || '-';
     const envCount = Number(viewer.my_env_count || 0);
     document.getElementById('viewerInfo').textContent = `当前用户：${displayName}（user_id: ${userId} · 账号 ${envCount} 个）`;
     document.getElementById('periodRangeLabel').textContent = `周期 ${period.start_date || '-'} ~ ${period.end_date || '-'}`;
-
-    document.getElementById('todayTotalYuan').textContent = formatYuan(todayOverview.total_yuan);
-    document.getElementById('todayTotalCoins').textContent = buildIncomeCoinsText(todayOverview.total_coins, todayOverview.gross_total_coins);
-    document.getElementById('todayCompare').textContent = buildCompareText(todayOverview);
+    document.getElementById('periodFormulaLabel').textContent = periodOverview.formula || '本周期总收入 = 我*100% + 一级下级*20% + 二级下级*4%';
 
     document.getElementById('periodTotalYuan').textContent = formatYuan(periodOverview.total_yuan);
     document.getElementById('periodTotalCoins').textContent = buildIncomeCoinsText(periodOverview.total_coins, periodOverview.gross_total_coins);
@@ -289,9 +293,13 @@ function renderHierarchy(data) {
     const l1 = layers.l1 || {};
     const l2 = layers.l2 || {};
 
+    document.getElementById('ownedTotalYuan').textContent = formatYuan(me.period_yuan);
+    document.getElementById('ownedTotalCoins').textContent = `${formatCoins(me.period_coins)} 金币`;
+    document.getElementById('ownedRangeLabel').textContent = `周期 ${period.start_date || '-'} ~ ${period.end_date || '-'}`;
+
     document.getElementById('mePeriodYuan').textContent = formatYuan(me.period_income_yuan);
     document.getElementById('meTitle').textContent = '我自己';
-    document.getElementById('meMeta').textContent = `折算 ${formatCoins(me.period_income_coins)} 金币 · 贡献 ${formatPct(me.share_pct)}%`;
+    document.getElementById('meMeta').textContent = buildMeMetaText(me);
 
     document.getElementById('l1PeriodYuan').textContent = formatYuan(l1.period_income_yuan);
     document.getElementById('l1Meta').textContent = buildLayerMetaText(l1);
@@ -506,91 +514,51 @@ function renderEarningsTrendByEnv(legend, container, payload) {
 
 function renderAccountSection(levelKey, layer, rows) {
     const cnt = layer.count || 0;
-    const todayYuan = formatYuan(layer.today_yuan);
-    const issues = layer.abnormal_count || 0;
+    const periodYuan = formatYuan(layer.period_yuan);
+    const periodCoins = Number(layer.period_coins || 0);
 
     document.getElementById(`${levelKey}SummaryTitle`).textContent = `${levelKey === 'l1' ? '一级下级账号' : '二级下级账号'}（${cnt}）`;
-    document.getElementById(`${levelKey}SummaryRight`).textContent = `当日 ${todayYuan} · 异常/无收益 ${issues}`;
+    document.getElementById(`${levelKey}SummaryRight`).textContent = `周期 ${periodYuan} · ${formatCoins(periodCoins)} 金币`;
 
     const tbody = document.getElementById(`${levelKey}TableBody`);
     if (!rows || rows.length === 0) {
-        tbody.innerHTML = '<tr><td colspan=\"6\" class=\"empty-cell\">暂无账号</td></tr>';
+        tbody.innerHTML = '<tr><td colspan=\"3\" class=\"empty-cell\">暂无账号</td></tr>';
         return;
     }
 
     tbody.innerHTML = rows.map(r => {
-        const badge = buildStatusBadge(r.status);
-        const sources = buildTopSources(r.sources || {}, r.today_coins || 0);
+        const coins = Number(r.period_coins || 0);
         return `
             <tr>
                 <td>${escapeHtml(r.remark || ('账号#' + r.env_id))}</td>
-                <td class=\"coins-total\">${formatYuan(r.today_yuan)}</td>
-                <td>${formatCoins(r.today_coins)} 金币</td>
-                <td><span class=\"status-badge ${badge.className}\">${badge.text}</span></td>
-                <td>${escapeHtml(r.explanation || '-')}</td>
-                <td>${escapeHtml(sources)}</td>
+                <td class=\"coins-total\">${formatYuan(r.period_yuan)}</td>
+                <td>${formatCoins(coins)} 金币</td>
             </tr>
         `;
     }).join('');
 }
 
-function buildCompareText(todayOverview) {
-    const todayCoins = Number(todayOverview.total_coins || 0);
-    const yesterdayCoins = Number(todayOverview.yesterday_coins || 0);
-    const pct = todayOverview.pct_change;
-
-    if (yesterdayCoins === 0) {
-        if (todayCoins > 0) return '较昨日 新增长';
-        return '较昨日 —';
-    }
-    const pctNumber = Number(pct || 0);
-    const arrow = pctNumber >= 0 ? '↑' : '↓';
-    return `较昨日 ${arrow}${Math.abs(pctNumber).toFixed(2)}%`;
+function buildMeMetaText(layer) {
+    const share = formatPct(layer.share_pct);
+    const incomeCoins = Number(layer.period_income_coins || 0);
+    const grossCoins = Number(layer.period_coins || 0);
+    return `折算 ${formatCoins(incomeCoins)} 金币（原始 ${formatCoins(grossCoins)} 金币）· 贡献 ${share}%`;
 }
 
 function buildLayerMetaText(layer) {
     const cnt = layer.count || 0;
     const share = formatPct(layer.share_pct);
-    const issues = layer.abnormal_count || 0;
-    const issuesText = issues > 0 ? `异常/无收益 ${issues}` : '状态正常';
     const incomeCoins = Number(layer.period_income_coins || 0);
-    return `折算 ${formatCoins(incomeCoins)} 金币 · 账号 ${cnt} 个 · 贡献 ${share}% · ${issuesText}`;
+    const grossCoins = Number(layer.period_coins || 0);
+    return `折算 ${formatCoins(incomeCoins)} 金币（原始 ${formatCoins(grossCoins)} 金币）· 账号 ${cnt} 个 · 贡献 ${share}%`;
 }
 
 function buildIncomeCoinsText(incomeCoins, grossCoins) {
     const income = Number(incomeCoins || 0);
     const gross = Number(grossCoins || 0);
     const base = `折算 ${formatCoins(income)} 金币`;
-    if (!gross || gross === income) return base;
+    if (!gross) return base;
     return `${base}（原始 ${formatCoins(gross)} 金币）`;
-}
-
-function buildStatusBadge(status) {
-    if (status === 'normal') return { text: '正常', className: 'status-normal' };
-    if (status === 'abnormal') return { text: '异常', className: 'status-invalid' };
-    return { text: '无收益', className: 'status-expired' };
-}
-
-function buildTopSources(sources, totalCoins) {
-    const defs = [
-        { key: 'box', name: '宝箱' },
-        { key: 'look', name: '看视频' },
-        { key: 'food', name: '美食' },
-        { key: 'search', name: '搜索' }
-    ];
-
-    const items = defs.map(d => {
-        const coins = Number((sources && sources[d.key]) || 0);
-        return { name: d.name, coins };
-    }).filter(x => x.coins > 0);
-
-    if (!items.length || !totalCoins) return '-';
-
-    items.sort((a, b) => b.coins - a.coins);
-    return items.slice(0, 2).map(x => {
-        const pct = (x.coins / totalCoins * 100);
-        return `${x.name} ${pct.toFixed(0)}%`;
-    }).join(' | ');
 }
 
 function formatTrendTick(value) {

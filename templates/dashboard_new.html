@@ -61,8 +61,8 @@
     <div class="stat-card">
         <div class="stat-icon">💰</div>
         <div class="stat-content">
-            <span class="stat-value" id="statTodayCoins">0</span>
-            <span class="stat-label">今日金币</span>
+            <span class="stat-value" id="statYesterdayCoins">0</span>
+            <span class="stat-label">昨日金币</span>
         </div>
     </div>
     <div class="stat-card">
@@ -359,7 +359,7 @@ async function loadDashboardStats() {
     try {
         const stats = await apiRequest('/stats/dashboard');
         document.getElementById('statConfigs').textContent = stats.total_configs || 0;
-        document.getElementById('statTodayCoins').textContent = formatNumber(stats.today_coins || 0);
+        document.getElementById('statYesterdayCoins').textContent = formatNumber(stats.yesterday_coins || 0);
         document.getElementById('statWalletBalance').textContent = '¥' + (stats.wallet_balance || 0).toFixed(2);
     } catch (error) {
         console.error('加载统计数据失败:', error);

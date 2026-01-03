@@ -29,6 +29,7 @@ from app.schemas import (
     SettlementUserIncomeResponse,
     SettlementUserPayableResponse,
 )
+from app.services.alipay_service import get_alipay_config
 from app.services.settlement_unlock import unlock_commissions_for_beneficiary, unlock_commissions_for_period
 
 router = APIRouter(prefix="/api", tags=["结算"])
@@ -95,10 +96,19 @@ async def get_my_settlement_center(
     current_user: User = Depends(get_current_user),
 ):
     """结算中心（用户视角）"""
+    alipay_config = get_alipay_config(db)
+    alipay_qrcode_url = alipay_config.qrcode_url if alipay_config else None
+
     if period_id is None:
         period = _get_current_period(db)
         if not period:
-            return SettlementMeResponse(period=None, income=None, payable=None, payments=[])
+            return SettlementMeResponse(
+                period=None,
+                income=None,
+                payable=None,
+                payments=[],
+                alipay_qrcode_url=alipay_qrcode_url,
+            )
         period_id = int(period.period_id)
     else:
         period = _get_period_or_404(db, int(period_id))
@@ -121,6 +131,7 @@ async def get_my_settlement_center(
         income=SettlementUserIncomeResponse.model_validate(income) if income else None,
         payable=SettlementUserPayableResponse.model_validate(payable) if payable else None,
         payments=[SettlementPaymentResponse.model_validate(p) for p in payments],
+        alipay_qrcode_url=alipay_qrcode_url,
     )
 
 
@@ -189,6 +200,9 @@ async def generate_settlement_for_period(
     """
     _get_period_or_404(db, period_id)
 
+    # 先提交可能存在的挂起事务
+    db.commit()
+
     has_snapshot = db.query(SettlementReferralSnapshot).filter(SettlementReferralSnapshot.period_id == period_id).first()
     has_income = db.query(SettlementUserIncome).filter(SettlementUserIncome.period_id == period_id).first()
     has_payable = db.query(SettlementUserPayable).filter(SettlementUserPayable.period_id == period_id).first()
@@ -203,111 +217,108 @@ async def generate_settlement_for_period(
             raise HTTPException(status_code=400, detail="该结算期已存在缴费记录，禁止重跑")
 
     try:
-        with db.begin():
-            if regenerate:
-                db.execute(text("DELETE FROM settlement_user_payable WHERE period_id = :period_id"), {"period_id": period_id})
-                db.execute(text("DELETE FROM settlement_user_income WHERE period_id = :period_id"), {"period_id": period_id})
-                db.execute(text("DELETE FROM settlement_referral_snapshot WHERE period_id = :period_id"), {"period_id": period_id})
-                db.execute(text("DELETE FROM settlement_commissions WHERE period_id = :period_id"), {"period_id": period_id})
+        # 关系快照：冻结本期 +1/+2 关系
+        db.execute(
+            text(
+                """
+                INSERT INTO settlement_referral_snapshot(period_id, user_id, inviter_level1, inviter_level2)
+                SELECT :period_id, r.user_id, r.inviter_level1, r.inviter_level2
+                FROM user_referrals r
+                """
+            ),
+            {"period_id": period_id},
+        )
 
-            # 关系快照：冻结本期 +1/+2 关系
-            db.execute(
-                text(
-                    """
-                    INSERT INTO settlement_referral_snapshot(period_id, user_id, inviter_level1, inviter_level2)
-                    SELECT :period_id, r.user_id, r.inviter_level1, r.inviter_level2
-                    FROM user_referrals r
-                    """
-                ),
-                {"period_id": period_id},
-            )
+        # earning_records -> settlement_user_income（按期聚合并按 bps 拆分）
+        db.execute(
+            text(
+                """
+                INSERT INTO settlement_user_income
+                (period_id, user_id, gross_coins, self_keep_coins, self_payable_coins,
+                 l1_user_id, l2_user_id, l1_commission_coins, l2_commission_coins, platform_retain_coins)
+                SELECT
+                  p.period_id,
+                  er.user_id,
+                  SUM(er.coins_total) AS gross_coins,
+                  (SUM(er.coins_total) * p.host_bps)    DIV 10000 AS self_keep_coins,
+                  (SUM(er.coins_total) * p.collect_bps) DIV 10000 AS self_payable_coins,
+                  s.inviter_level1 AS l1_user_id,
+                  s.inviter_level2 AS l2_user_id,
+                  CASE WHEN s.inviter_level1 IS NULL THEN 0 ELSE (SUM(er.coins_total) * p.l1_bps) DIV 10000 END AS l1_commission_coins,
+                  CASE WHEN s.inviter_level2 IS NULL THEN 0 ELSE (SUM(er.coins_total) * p.l2_bps) DIV 10000 END AS l2_commission_coins,
+                  (
+                    (SUM(er.coins_total) * p.collect_bps) DIV 10000
+                    - CASE WHEN s.inviter_level1 IS NULL THEN 0 ELSE (SUM(er.coins_total) * p.l1_bps) DIV 10000 END
+                    - CASE WHEN s.inviter_level2 IS NULL THEN 0 ELSE (SUM(er.coins_total) * p.l2_bps) DIV 10000 END
+                  ) AS platform_retain_coins
+                FROM settlement_periods p
+                JOIN earning_records er
+                  ON er.stat_date BETWEEN p.period_start AND p.period_end
+                LEFT JOIN settlement_referral_snapshot s
+                  ON s.period_id = p.period_id AND s.user_id = er.user_id
+                WHERE p.period_id = :period_id
+                  AND er.user_id IS NOT NULL
+                GROUP BY p.period_id, er.user_id, s.inviter_level1, s.inviter_level2
+                """
+            ),
+            {"period_id": period_id},
+        )
 
-            # earning_records -> settlement_user_income（按期聚合并按 bps 拆分）
-            db.execute(
-                text(
-                    """
-                    INSERT INTO settlement_user_income
-                    (period_id, user_id, gross_coins, self_keep_coins, self_payable_coins,
-                     l1_user_id, l2_user_id, l1_commission_coins, l2_commission_coins, platform_retain_coins)
-                    SELECT
-                      p.period_id,
-                      er.user_id,
-                      SUM(er.coins_total) AS gross_coins,
-                      (SUM(er.coins_total) * p.host_bps)    DIV 10000 AS self_keep_coins,
-                      (SUM(er.coins_total) * p.collect_bps) DIV 10000 AS self_payable_coins,
-                      s.inviter_level1 AS l1_user_id,
-                      s.inviter_level2 AS l2_user_id,
-                      CASE WHEN s.inviter_level1 IS NULL THEN 0 ELSE (SUM(er.coins_total) * p.l1_bps) DIV 10000 END AS l1_commission_coins,
-                      CASE WHEN s.inviter_level2 IS NULL THEN 0 ELSE (SUM(er.coins_total) * p.l2_bps) DIV 10000 END AS l2_commission_coins,
-                      (
-                        (SUM(er.coins_total) * p.collect_bps) DIV 10000
-                        - CASE WHEN s.inviter_level1 IS NULL THEN 0 ELSE (SUM(er.coins_total) * p.l1_bps) DIV 10000 END
-                        - CASE WHEN s.inviter_level2 IS NULL THEN 0 ELSE (SUM(er.coins_total) * p.l2_bps) DIV 10000 END
-                      ) AS platform_retain_coins
-                    FROM settlement_periods p
-                    JOIN earning_records er
-                      ON er.stat_date BETWEEN p.period_start AND p.period_end
-                    LEFT JOIN settlement_referral_snapshot s
-                      ON s.period_id = p.period_id AND s.user_id = er.user_id
-                    WHERE p.period_id = :period_id
-                      AND er.user_id IS NOT NULL
-                    GROUP BY p.period_id, er.user_id, s.inviter_level1, s.inviter_level2
-                    """
-                ),
-                {"period_id": period_id},
-            )
+        # settlement_user_income -> settlement_commissions（生成分成明细，默认 funding_status=0）
+        db.execute(
+            text(
+                """
+                INSERT INTO settlement_commissions(period_id, source_user_id, beneficiary_user_id, level, amount_coins)
+                SELECT period_id, user_id, l1_user_id, 1, l1_commission_coins
+                FROM settlement_user_income
+                WHERE period_id = :period_id
+                  AND l1_user_id IS NOT NULL
+                  AND l1_commission_coins > 0
+                """
+            ),
+            {"period_id": period_id},
+        )
+        db.execute(
+            text(
+                """
+                INSERT INTO settlement_commissions(period_id, source_user_id, beneficiary_user_id, level, amount_coins)
+                SELECT period_id, user_id, l2_user_id, 2, l2_commission_coins
+                FROM settlement_user_income
+                WHERE period_id = :period_id
+                  AND l2_user_id IS NOT NULL
+                  AND l2_commission_coins > 0
+                """
+            ),
+            {"period_id": period_id},
+        )
 
-            # settlement_user_income -> settlement_commissions（生成分成明细，默认 funding_status=0）
-            db.execute(
-                text(
-                    """
-                    INSERT INTO settlement_commissions(period_id, source_user_id, beneficiary_user_id, level, amount_coins)
-                    SELECT period_id, user_id, l1_user_id, 1, l1_commission_coins
-                    FROM settlement_user_income
-                    WHERE period_id = :period_id
-                      AND l1_user_id IS NOT NULL
-                      AND l1_commission_coins > 0
-                    """
-                ),
-                {"period_id": period_id},
-            )
-            db.execute(
-                text(
-                    """
-                    INSERT INTO settlement_commissions(period_id, source_user_id, beneficiary_user_id, level, amount_coins)
-                    SELECT period_id, user_id, l2_user_id, 2, l2_commission_coins
-                    FROM settlement_user_income
-                    WHERE period_id = :period_id
-                      AND l2_user_id IS NOT NULL
-                      AND l2_commission_coins > 0
-                    """
-                ),
-                {"period_id": period_id},
-            )
+        # settlement_user_income -> settlement_user_payable（应缴=40%）
+        db.execute(
+            text(
+                """
+                INSERT INTO settlement_user_payable(period_id, user_id, amount_due_coins, amount_paid_coins, status)
+                SELECT period_id, user_id, self_payable_coins, 0, 0
+                FROM settlement_user_income
+                WHERE period_id = :period_id
+                """
+            ),
+            {"period_id": period_id},
+        )
 
-            # settlement_user_income -> settlement_user_payable（应缴=40%）
-            db.execute(
-                text(
-                    """
-                    INSERT INTO settlement_user_payable(period_id, user_id, amount_due_coins, amount_paid_coins, status)
-                    SELECT period_id, user_id, self_payable_coins, 0, 0
-                    FROM settlement_user_income
-                    WHERE period_id = :period_id
-                    """
-                ),
-                {"period_id": period_id},
-            )
+        # 生成后进入 PAYING
+        db.execute(
+            text("UPDATE settlement_periods SET status = 1 WHERE period_id = :period_id"),
+            {"period_id": period_id},
+        )
 
-            # 生成后进入 PAYING
-            db.execute(
-                text("UPDATE settlement_periods SET status = 1 WHERE period_id = :period_id"),
-                {"period_id": period_id},
-            )
+        db.commit()
 
         return {"message": "生成成功", "period_id": period_id}
     except HTTPException:
+        db.rollback()
         raise
     except Exception as exc:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"生成失败: {exc}")
 
 
@@ -319,37 +330,39 @@ async def generate_commissions_for_period(
 ):
     """为指定结算期补生成 settlement_commissions（不删除、不重跑，INSERT IGNORE 幂等）"""
     _get_period_or_404(db, int(period_id))
+    db.commit()
 
     try:
-        with db.begin():
-            db.execute(
-                text(
-                    """
-                    INSERT IGNORE INTO settlement_commissions(period_id, source_user_id, beneficiary_user_id, level, amount_coins)
-                    SELECT period_id, user_id, l1_user_id, 1, l1_commission_coins
-                    FROM settlement_user_income
-                    WHERE period_id = :period_id
-                      AND l1_user_id IS NOT NULL
-                      AND l1_commission_coins > 0
-                    """
-                ),
-                {"period_id": int(period_id)},
-            )
-            db.execute(
-                text(
-                    """
-                    INSERT IGNORE INTO settlement_commissions(period_id, source_user_id, beneficiary_user_id, level, amount_coins)
-                    SELECT period_id, user_id, l2_user_id, 2, l2_commission_coins
-                    FROM settlement_user_income
-                    WHERE period_id = :period_id
-                      AND l2_user_id IS NOT NULL
-                      AND l2_commission_coins > 0
-                    """
-                ),
-                {"period_id": int(period_id)},
-            )
+        db.execute(
+            text(
+                """
+                INSERT IGNORE INTO settlement_commissions(period_id, source_user_id, beneficiary_user_id, level, amount_coins)
+                SELECT period_id, user_id, l1_user_id, 1, l1_commission_coins
+                FROM settlement_user_income
+                WHERE period_id = :period_id
+                  AND l1_user_id IS NOT NULL
+                  AND l1_commission_coins > 0
+                """
+            ),
+            {"period_id": int(period_id)},
+        )
+        db.execute(
+            text(
+                """
+                INSERT IGNORE INTO settlement_commissions(period_id, source_user_id, beneficiary_user_id, level, amount_coins)
+                SELECT period_id, user_id, l2_user_id, 2, l2_commission_coins
+                FROM settlement_user_income
+                WHERE period_id = :period_id
+                  AND l2_user_id IS NOT NULL
+                  AND l2_commission_coins > 0
+                """
+            ),
+            {"period_id": int(period_id)},
+        )
+        db.commit()
         return {"message": "commission 已补生成", "period_id": int(period_id)}
     except Exception as exc:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"补生成失败: {exc}")
 
 
@@ -362,29 +375,34 @@ async def unlock_commissions(
 ):
     """批量解锁分成（满足条件：commission FUNDED + beneficiary 已缴清）"""
     _get_period_or_404(db, int(period_id))
+    db.commit()
 
     try:
-        with db.begin():
-            if beneficiary_user_id is not None:
-                unlocked = unlock_commissions_for_beneficiary(
-                    db,
-                    int(period_id),
-                    int(beneficiary_user_id),
-                )
-                return {
-                    "message": "ok",
-                    "period_id": int(period_id),
-                    "beneficiary_user_id": int(beneficiary_user_id),
-                    "unlocked_coins": int(unlocked),
-                }
+        if beneficiary_user_id is not None:
+            unlocked = unlock_commissions_for_beneficiary(
+                db,
+                int(period_id),
+                int(beneficiary_user_id),
+            )
+            db.commit()
+            return {
+                "message": "ok",
+                "period_id": int(period_id),
+                "beneficiary_user_id": int(beneficiary_user_id),
+                "unlocked_coins": int(unlocked),
+            }
 
-            result = unlock_commissions_for_period(db, int(period_id))
-            return {"message": "ok", "period_id": int(period_id), **result}
+        result = unlock_commissions_for_period(db, int(period_id))
+        db.commit()
+        return {"message": "ok", "period_id": int(period_id), **result}
     except ValueError as exc:
+        db.rollback()
         raise HTTPException(status_code=409, detail=str(exc))
     except HTTPException:
+        db.rollback()
         raise
     except Exception as exc:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"解锁失败: {exc}")
 
 
