@@ -4,6 +4,26 @@
 
 {% block page_title %}结算管理{% endblock %}
 
+{% block extra_css %}
+<style>
+/* 当前生效的结算期样式 */
+.active-period {
+    background: linear-gradient(135deg, #d1fae5, #a7f3d0) !important;
+}
+
+.active-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 8px;
+    background: #059669;
+    color: white;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('periods')">结算周期</button>
@@ -149,19 +169,32 @@ function renderPeriods() {
         tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">暂无结算周期</td></tr>';
         return;
     }
-    
-    tbody.innerHTML = periods.map(p => `
-        <tr>
-            <td><strong>${p.period_label}</strong></td>
-            <td>${p.start_date}</td>
-            <td>${p.end_date}</td>
-            <td><span class="status-badge status-${p.status}">${p.status === 'open' ? '进行中' : '已结束'}</span></td>
+
+    tbody.innerHTML = periods.map(p => {
+        const isActive = p.is_active === 1;
+        return `
+        <tr ${isActive ? 'class="active-period"' : ''}>
+            <td>
+                <strong>${p.period_label}</strong>
+                ${isActive ? '<span class="active-badge">当前生效</span>' : ''}
+            </td>
+            <td>${p.period_start}</td>
+            <td>${p.period_end}</td>
+            <td><span class="status-badge status-${p.status}">${getPeriodStatusText(p.status)}</span></td>
             <td class="action-cell">
-                <button class="btn btn-secondary btn-sm" onclick="viewPeriodDetails(${p.id})">查看明细</button>
-                <button class="btn-icon admin-only" onclick="closePeriod(${p.id})" title="结束周期" ${p.status === 'closed' ? 'disabled' : ''}>🔒</button>
+                <button class="btn btn-secondary btn-sm" onclick="viewPeriodDetails(${p.period_id})">查看明细</button>
+                ${!isActive ? `<button class="btn btn-primary btn-sm admin-only" onclick="activatePeriod(${p.period_id})">设为生效</button>` : ''}
+                <button class="btn-icon admin-only" onclick="deletePeriod(${p.period_id}, '${p.period_label}')" title="删除周期" ${p.status === 2 ? '' : 'disabled'}>🗑️</button>
+                <button class="btn-icon admin-only" onclick="closePeriod(${p.period_id})" title="结束周期" ${p.status === 2 ? 'disabled' : ''}>🔒</button>
             </td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
+}
+
+function getPeriodStatusText(status) {
+    const statusMap = { 0: '待生效', 1: '进行中', 2: '已关闭' };
+    return statusMap[status] || '未知';
 }
 
 async function loadDetails() {
@@ -239,9 +272,35 @@ async function savePeriod() {
     }
 }
 
+// 设置结算期为生效期
+async function activatePeriod(periodId) {
+    if (!confirm('确定要设置此结算期为当前生效期吗？\n\n生效后，所有用户将统一使用该期进行计算。')) return;
+
+    try {
+        await apiRequest(`/settlement-periods/${periodId}/activate`, { method: 'POST' });
+        showToast('已设置该结算期为当前生效期', 'success');
+        loadPeriods();
+    } catch (error) {
+        showToast('设置失败: ' + error.message, 'error');
+    }
+}
+
+// 删除结算期（仅管理员）
+async function deletePeriod(periodId, periodLabel) {
+    if (!confirm(`确定要删除结算期 "${periodLabel}" 吗？\n\n注意：\n- 只能删除已关闭且无用户缴费的结算期\n- 删除后无法恢复！`)) return;
+
+    try {
+        await apiRequest(`/settlement-periods/${periodId}`, { method: 'DELETE' });
+        showToast('结算期已删除', 'success');
+        loadPeriods();
+    } catch (error) {
+        showToast('删除失败: ' + error.message, 'error');
+    }
+}
+
 async function closePeriod(id) {
-    if (!confirm('确定要结束这个结算周期吗？结束后将无法修改。')) return;
-    
+    if (!confirm('确定要结束这个结算周期吗？��束后将无法修改。')) return;
+
     try {
         await apiRequest(`/settlement-periods/${id}/close`, { method: 'POST' });
         showToast('周期已结束', 'success');

@@ -41,22 +41,60 @@ async def get_my_invites(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """获取我邀请的用户"""
+    """获取我邀请的用户（含完整用户信息）"""
     # 直接邀请（+1）
-    level1_invites = db.query(UserReferral).filter(
+    level1_referrals = db.query(UserReferral).filter(
         UserReferral.inviter_level1 == current_user.id
     ).all()
-    
+
     # 间接邀请（+2）
-    level2_invites = db.query(UserReferral).filter(
+    level2_referrals = db.query(UserReferral).filter(
         UserReferral.inviter_level2 == current_user.id
     ).all()
-    
+
+    # 获取用户ID列表
+    level1_user_ids = [r.user_id for r in level1_referrals]
+    level2_user_ids = [r.user_id for r in level2_referrals]
+
+    # 批量获取用户信息
+    all_user_ids = list(set(level1_user_ids + level2_user_ids))
+    user_map = {}
+    if all_user_ids:
+        users = db.query(User).filter(User.id.in_(all_user_ids)).all()
+        user_map = {u.id: u for u in users}
+
+    # 构建返回数据，包含完整用户信息
+    level1_users = []
+    for user_id in level1_user_ids:
+        user = user_map.get(user_id)
+        if user:
+            level1_users.append({
+                "id": user.id,
+                "username": user.username,
+                "nickname": user.nickname,
+                "role": user.role.value if hasattr(user.role, "value") else user.role,
+                "status": user.status,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            })
+
+    level2_users = []
+    for user_id in level2_user_ids:
+        user = user_map.get(user_id)
+        if user:
+            level2_users.append({
+                "id": user.id,
+                "username": user.username,
+                "nickname": user.nickname,
+                "role": user.role.value if hasattr(user.role, "value") else user.role,
+                "status": user.status,
+                "created_at": user.created_at.isoformat() if user.created_at else None
+            })
+
     return {
-        "level1_count": len(level1_invites),
-        "level2_count": len(level2_invites),
-        "level1_users": [r.user_id for r in level1_invites],
-        "level2_users": [r.user_id for r in level2_invites]
+        "level1_count": len(level1_users),
+        "level2_count": len(level2_users),
+        "level1_users": level1_users,
+        "level2_users": level2_users
     }
 
 

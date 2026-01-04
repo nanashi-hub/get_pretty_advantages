@@ -16,6 +16,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.hybrid import hybrid_property
 import enum
 from app.database import Base
 
@@ -355,6 +356,7 @@ class SettlementPeriod(Base):
     collect_bps = Column(Integer, nullable=False, default=4000, comment="号主应缴平台比例（bps），4000=40%")
 
     status = Column(Integer, nullable=False, default=1, comment="结算期状态：0=OPEN 1=PAYING 2=CLOSED")
+    is_active = Column(Integer, nullable=False, default=0, comment="是否为当前生效期：0=否 1=是（全局只能有一个为1）")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -362,6 +364,22 @@ class SettlementPeriod(Base):
     __table_args__ = (
         UniqueConstraint("period_start", "period_end", name="uk_period_range"),
     )
+
+    @hybrid_property
+    def period_label(self) -> str:
+        """生成周期标识，如 2025W01 或 2025-01"""
+        if self.period_start and self.period_end:
+            # 尝试判断是否为周周期（日期间隔 <= 7天）
+            days_diff = (self.period_end - self.period_start).days
+            if days_diff <= 7:
+                # 周周期格式：2025W01
+                start = self.period_start
+                week_num = start.isocalendar()[1]
+                return f"{start.year}W{week_num:02d}"
+            else:
+                # 月周期格式：2025-01
+                return f"{self.period_start.year}-{self.period_start.month:02d}"
+        return str(self.period_id)
 
     def __repr__(self):
         return f"<SettlementPeriod(period_id={self.period_id}, period_start={self.period_start}, period_end={self.period_end})>"

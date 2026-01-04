@@ -72,7 +72,43 @@ def _get_period_or_404(db: Session, period_id: int) -> SettlementPeriod:
     return period
 
 
-def _get_current_period(db: Session) -> Optional[SettlementPeriod]:
+def _get_current_period(db: Session, user_id: Optional[int] = None) -> Optional[SettlementPeriod]:
+    """
+    获取当前结算期
+
+    策���（按优先级）：
+    1. 优先返回 is_active=1 的结算期（管理员设置的当前生效期）
+    2. 如果没有生效期，且提供了 user_id，返回该用户有未缴清记录的结算期
+    3. 如果都没有，返回最新的 OPEN/PENDING 结算期
+    """
+    from app.models import SettlementUserPayable
+
+    # 1. 优先查找管理员设置的当前生效期（is_active=1）
+    active_period = (
+        db.query(SettlementPeriod)
+        .filter(SettlementPeriod.is_active == 1)
+        .first()
+    )
+    if active_period:
+        return active_period
+
+    # 2. 如果提供了 user_id，查找该用户有未缴清记录的结算期
+    if user_id is not None:
+        unpaid_period = (
+            db.query(SettlementPeriod)
+            .join(SettlementUserPayable, SettlementPeriod.period_id == SettlementUserPayable.period_id)
+            .filter(
+                SettlementUserPayable.user_id == user_id,
+                SettlementUserPayable.status != 2,  # 未缴清（不是 PAID 状态）
+                SettlementPeriod.status.in_([0, 1])  # 结算期状态为 PENDING 或 OPEN
+            )
+            .order_by(SettlementPeriod.period_id.desc())
+            .first()
+        )
+        if unpaid_period:
+            return unpaid_period
+
+    # 3. 返回最新的结算期
     return (
         db.query(SettlementPeriod)
         .filter(SettlementPeriod.status.in_([0, 1]))
@@ -100,7 +136,7 @@ async def get_my_settlement_center(
     alipay_qrcode_url = alipay_config.qrcode_url if alipay_config else None
 
     if period_id is None:
-        period = _get_current_period(db)
+        period = _get_current_period(db, user_id=current_user.id)
         if not period:
             return SettlementMeResponse(
                 period=None,
@@ -147,7 +183,27 @@ async def get_current_settlement_period(
         .order_by(SettlementPeriod.period_id.desc())
         .first()
     )
-    return period
+    if not period:
+        return None
+
+    # 手动添加 period_label 字段
+    return SettlementPeriodResponse(
+        period_id=period.period_id,
+        period_label=period.period_label,
+        period_start=period.period_start,
+        period_end=period.period_end,
+        pay_start=period.pay_start,
+        pay_end=period.pay_end,
+        coin_rate=period.coin_rate,
+        host_bps=period.host_bps,
+        l1_bps=period.l1_bps,
+        l2_bps=period.l2_bps,
+        collect_bps=period.collect_bps,
+        status=period.status,
+        is_active=period.is_active,
+        created_at=period.created_at,
+        updated_at=period.updated_at,
+    )
 
 
 @router.get("/settlement-periods", response_model=List[SettlementPeriodResponse])
@@ -156,7 +212,30 @@ async def list_settlement_periods(
     current_user: User = Depends(require_admin),
 ):
     """结算期列表（管理员）"""
-    return db.query(SettlementPeriod).order_by(SettlementPeriod.period_id.desc()).all()
+    periods = db.query(SettlementPeriod).order_by(SettlementPeriod.period_id.desc()).all()
+
+    # 手动添加 period_label 字段（hybrid_property 在 Pydantic v1 中可能无法自动序列化）
+    result = []
+    for p in periods:
+        p_dict = {
+            "period_id": p.period_id,
+            "period_label": p.period_label,
+            "period_start": p.period_start,
+            "period_end": p.period_end,
+            "pay_start": p.pay_start,
+            "pay_end": p.pay_end,
+            "coin_rate": p.coin_rate,
+            "host_bps": p.host_bps,
+            "l1_bps": p.l1_bps,
+            "l2_bps": p.l2_bps,
+            "collect_bps": p.collect_bps,
+            "status": p.status,
+            "is_active": p.is_active,
+            "created_at": p.created_at,
+            "updated_at": p.updated_at,
+        }
+        result.append(SettlementPeriodResponse(**p_dict))
+    return result
 
 
 @router.post("/settlement-periods", response_model=SettlementPeriodResponse)
@@ -175,14 +254,46 @@ async def create_settlement_period(
     ).first()
     if existing:
         response.status_code = status.HTTP_200_OK
-        return existing
+        return SettlementPeriodResponse(
+            period_id=existing.period_id,
+            period_label=existing.period_label,
+            period_start=existing.period_start,
+            period_end=existing.period_end,
+            pay_start=existing.pay_start,
+            pay_end=existing.pay_end,
+            coin_rate=existing.coin_rate,
+            host_bps=existing.host_bps,
+            l1_bps=existing.l1_bps,
+            l2_bps=existing.l2_bps,
+            collect_bps=existing.collect_bps,
+            status=existing.status,
+            is_active=existing.is_active,
+            created_at=existing.created_at,
+            updated_at=existing.updated_at,
+        )
 
     period = SettlementPeriod(**data.model_dump())
     db.add(period)
     db.commit()
     db.refresh(period)
     response.status_code = status.HTTP_201_CREATED
-    return period
+    return SettlementPeriodResponse(
+        period_id=period.period_id,
+        period_label=period.period_label,
+        period_start=period.period_start,
+        period_end=period.period_end,
+        pay_start=period.pay_start,
+        pay_end=period.pay_end,
+        coin_rate=period.coin_rate,
+        host_bps=period.host_bps,
+        l1_bps=period.l1_bps,
+        l2_bps=period.l2_bps,
+        collect_bps=period.collect_bps,
+        status=period.status,
+        is_active=period.is_active,
+        created_at=period.created_at,
+        updated_at=period.updated_at,
+    )
 
 
 @router.post("/settlement-periods/{period_id}/generate")
@@ -488,7 +599,8 @@ async def confirm_settlement_payment(
     current_user: User = Depends(require_admin),
 ):
     """确认缴费（管理员）"""
-    now = datetime.now()
+    # MySQL DATETIME 默认不存微秒；后续 SQL 需要用 funded_at = :now 做精确匹配，因此统一截断到秒级
+    now = datetime.now().replace(microsecond=0)
 
     try:
         payment = (
@@ -685,3 +797,107 @@ async def reject_settlement_payment(
 
     db.refresh(payment)
     return payment
+
+
+# ==================== 结算期管理 API ====================
+
+@router.post("/settlement-periods/{period_id}/activate")
+async def activate_settlement_period(
+    period_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    设置结算期为当前生效期（管理员）
+
+    规则：
+    - 将该结算期的 is_active 设为 1
+    - 将其他所有结算期的 is_active 设为 0
+    - 所有用户将统一使用这个生效期进行计算
+    """
+    period = _get_period_or_404(db, period_id)
+
+    try:
+        # 取消其他所有结算期的生效状态
+        db.query(SettlementPeriod).filter(
+            SettlementPeriod.period_id != int(period_id)
+        ).update({"is_active": 0})
+
+        # 设置当前结算期为生效期
+        period.is_active = 1
+
+        db.commit()
+        return {"message": f"已设置 {period.period_start}~{period.period_end} 为当前生效期", "period_id": period_id}
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"设置生效期失败: {exc}")
+
+
+@router.delete("/settlement-periods/{period_id}")
+async def delete_settlement_period(
+    period_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    删除结算期（管理员）
+
+    限制：
+    - 只能删除已关闭（status=2）且无用户缴费记录的结算期
+    - 删除后将同时清理关联的关系快照、收益汇总、应缴记录
+    """
+    period = _get_period_or_404(db, period_id)
+
+    # 检查是否已关闭
+    if period.status != 2:
+        raise HTTPException(
+            status_code=400,
+            detail="只能删除已关闭的结算期（当前状态不允许删除）"
+        )
+
+    # 检查是否有缴费记录
+    payment_count = db.query(SettlementPayment).filter(
+        SettlementPayment.period_id == int(period_id)
+    ).count()
+    if payment_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"该结算期已有 {payment_count} 条缴费记录，无法删除"
+        )
+
+    # 检查是否有应缴记录（有应缴记录说明已生成过结算数据）
+    payable_count = db.query(SettlementUserPayable).filter(
+        SettlementUserPayable.period_id == int(period_id)
+    ).count()
+    if payable_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"该结算期已有 {payable_count} 条应缴记录，无法删除。请先在数据库中清理相关数据。"
+        )
+
+    try:
+        # 删除关系快照
+        db.query(SettlementReferralSnapshot).filter(
+            SettlementReferralSnapshot.period_id == int(period_id)
+        ).delete()
+
+        # 删除用户收益汇总
+        db.query(SettlementUserIncome).filter(
+            SettlementUserIncome.period_id == int(period_id)
+        ).delete()
+
+        # 删除用户应缴记录
+        db.query(SettlementUserPayable).filter(
+            SettlementUserPayable.period_id == int(period_id)
+        ).delete()
+
+        # 删除结算期本身
+        db.query(SettlementPeriod).filter(
+            SettlementPeriod.period_id == int(period_id)
+        ).delete()
+
+        db.commit()
+        return {"message": "结算期已删除", "period_id": period_id}
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"删除失败: {exc}")

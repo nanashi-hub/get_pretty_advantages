@@ -99,16 +99,30 @@
                     <option value="wechat">💚 微信支付</option>
                     <option value="bank">🏦 银行卡</option>
                 </select>
+                <!-- 支付宝收款码 -->
                 <div class="payment-method-qrcode" id="alipayQrcodeBox" style="display:none;">
                     <div class="payment-method-qrcode-wrapper">
-                        <img id="alipayQrcodeImage" src="" alt="支付宝收款码" style="display:none;" />
+                        <img id="alipayQrcodeImage" src="/data/uploads/收款码/支付宝收款码.jpg" alt="支付宝收款码" onerror="this.style.display='none';document.getElementById('alipayQrcodeFallback').style.display='block';" />
                         <div class="payment-method-qrcode-fallback" id="alipayQrcodeFallback" style="display:none;">
                             <p class="fallback-title">未配置支付宝收款码</p>
-                            <p class="fallback-hint">请联系管理员在【系统管理 → 支付宝配置】中设置收款码</p>
+                            <p class="fallback-hint">请联系管理员设置收款码</p>
                         </div>
                     </div>
                     <div class="payment-method-qrcode-hint">
                         使用支付宝扫码完成转账后，请填写凭证链接并提交缴费。
+                    </div>
+                </div>
+                <!-- 微信收款码 -->
+                <div class="payment-method-qrcode" id="wechatQrcodeBox" style="display:none;">
+                    <div class="payment-method-qrcode-wrapper">
+                        <img id="wechatQrcodeImage" src="/data/uploads/收款码/微信收款码.jpg" alt="微信收款码" onerror="this.style.display='none';document.getElementById('wechatQrcodeFallback').style.display='block';" />
+                        <div class="payment-method-qrcode-fallback" id="wechatQrcodeFallback" style="display:none;">
+                            <p class="fallback-title">未配置微信收款码</p>
+                            <p class="fallback-hint">请联系管理员设置收款码</p>
+                        </div>
+                    </div>
+                    <div class="payment-method-qrcode-hint">
+                        使用微信扫码完成转账后，请填写凭证链接并提交缴费。
                     </div>
                 </div>
             </div>
@@ -665,6 +679,7 @@ let currentDueCoins = 0;
 let currentPaidCoins = 0;
 let currentPayWindow = null;
 let currentAlipayQrcodeUrl = null;
+let currentWechatQrcodeUrl = null;
 
 function coinsToYuan(coins) {
     const rate = currentCoinRate > 0 ? currentCoinRate : 10000;
@@ -673,35 +688,25 @@ function coinsToYuan(coins) {
 
 function updatePaymentMethodQrcode() {
     const methodEl = document.getElementById('paymentMethod');
-    const boxEl = document.getElementById('alipayQrcodeBox');
-    const imgEl = document.getElementById('alipayQrcodeImage');
-    const fallbackEl = document.getElementById('alipayQrcodeFallback');
-    if (!methodEl || !boxEl) return;
+    const alipayBox = document.getElementById('alipayQrcodeBox');
+    const wechatBox = document.getElementById('wechatQrcodeBox');
+    if (!methodEl) return;
 
-    if (methodEl.value !== 'alipay') {
-        boxEl.style.display = 'none';
-        return;
+    // 隐藏所有二维码
+    if (alipayBox) alipayBox.style.display = 'none';
+    if (wechatBox) wechatBox.style.display = 'none';
+
+    const method = methodEl.value;
+
+    // 显示支付宝收款码
+    if (method === 'alipay' && alipayBox) {
+        alipayBox.style.display = '';
     }
 
-    boxEl.style.display = '';
-    if (!imgEl || !fallbackEl) return;
-
-    if (currentAlipayQrcodeUrl) {
-        imgEl.style.display = '';
-        fallbackEl.style.display = 'none';
-        imgEl.src = currentAlipayQrcodeUrl;
-    } else {
-        imgEl.style.display = 'none';
-        fallbackEl.style.display = '';
-        imgEl.removeAttribute('src');
+    // 显示微信收款码
+    if (method === 'wechat' && wechatBox) {
+        wechatBox.style.display = '';
     }
-}
-
-function onAlipayQrcodeError() {
-    const imgEl = document.getElementById('alipayQrcodeImage');
-    const fallbackEl = document.getElementById('alipayQrcodeFallback');
-    if (imgEl) imgEl.style.display = 'none';
-    if (fallbackEl) fallbackEl.style.display = '';
 }
 
 function formatStatusBadge(type, text) {
@@ -868,9 +873,7 @@ async function submitSettlementPayment() {
 
 document.addEventListener('DOMContentLoaded', function() {
     const methodEl = document.getElementById('paymentMethod');
-    const qrcodeImgEl = document.getElementById('alipayQrcodeImage');
     if (methodEl) methodEl.addEventListener('change', updatePaymentMethodQrcode);
-    if (qrcodeImgEl) qrcodeImgEl.addEventListener('error', onAlipayQrcodeError);
     loadSettlementCenter();
 });
 </script>

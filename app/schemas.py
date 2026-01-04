@@ -440,6 +440,7 @@ class SettlementPeriodCreate(BaseModel):
 class SettlementPeriodResponse(BaseModel):
     """结算期响应"""
     period_id: int
+    period_label: Optional[str] = None  # 周期标识，如 2025W01
     period_start: date
     period_end: date
     pay_start: date
@@ -450,6 +451,7 @@ class SettlementPeriodResponse(BaseModel):
     l2_bps: int
     collect_bps: int
     status: int
+    is_active: int = 0  # 是否为当前生效期：0=否 1=是
     created_at: datetime
     updated_at: datetime
 

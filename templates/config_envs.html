@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}���置环境{% endblock %}
+{% block title %}配置环境{% endblock %}
 {% block page_title %}配置环境{% endblock %}
 
 {% block content %}
@@ -11,12 +11,12 @@
             <span class="config-icon">⚙️</span>
             <div>
                 <h3>配置环境</h3>
-                <p class="config-subtitle">管理脚本环境变量</p>
+                <p class="config-subtitle">管理名下账号及下级账号的环境变量</p>
             </div>
         </div>
         <div class="config-actions">
-            <button class="btn-config-action" id="refreshUsers">
-                <span>🔄</span> 刷新用户
+            <button class="btn-config-action" id="refreshAll">
+                <span>🔄</span> 刷新列表
             </button>
             <button class="btn-config-action btn-primary" id="startCreateEnv">
                 <span>➕</span> 新增变量
@@ -25,28 +25,29 @@
     </div>
 </div>
 
-<!-- 用户选择 -->
-<div class="config-section-card">
-    <div class="config-section-body">
-        <div class="user-selector-group">
-            <label for="userSelect">
-                <span class="label-icon">👤</span>
-                选择用户
-                <span class="required-mark">*</span>
-            </label>
-            <select id="userSelect">
-                <option value="">加载中...</option>
-            </select>
-            <span class="input-hint">可管理范围：自己、直接下级(+1)、间接下级(+2)；管理员可见全部</span>
-        </div>
-    </div>
-</div>
-
-<!-- 环境变量列表（移到上方） -->
+<!-- 环境变量列表（所有可管理用户） -->
 <div class="config-section-card env-list-card">
     <div class="config-section-header">
         <h3>📋 环境变量列表</h3>
-        <span class="env-count-badge" id="envCountBadge">0 条记录</span>
+        <div class="header-actions">
+            <span class="env-count-badge" id="envCountBadge">0 条记录</span>
+        </div>
+    </div>
+    <div class="list-filters" id="listFilters">
+        <div class="filter-group">
+            <label>筛选用户</label>
+            <select id="userFilter">
+                <option value="">全部用户</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>筛选状态</label>
+            <select id="statusFilter">
+                <option value="">全部状态</option>
+                <option value="valid">启用</option>
+                <option value="invalid">禁用</option>
+            </select>
+        </div>
     </div>
     <div class="config-section-body">
         <div class="table-wrapper">
@@ -54,6 +55,7 @@
                 <thead>
                     <tr>
                         <th class="col-id">ID</th>
+                        <th class="col-user">所属用户</th>
                         <th class="col-name">变量名</th>
                         <th class="col-value">Cookie 值</th>
                         <th class="col-ip">IP 信息</th>
@@ -63,7 +65,7 @@
                     </tr>
                 </thead>
                 <tbody id="envTableBody">
-                    <tr><td colspan="7" class="loading-cell">请选择用户查看环境变量</td></tr>
+                    <tr><td colspan="8" class="loading-cell">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -71,13 +73,24 @@
 </div>
 
 <!-- 配置表单 -->
-<div class="config-section-card config-form-card">
+<div class="config-section-card config-form-card" id="formCard" style="display: none;">
     <div class="config-section-header">
         <h3>📝 配置环境变量</h3>
+        <button class="btn-close-form" id="closeFormBtn">✕</button>
     </div>
     <div class="config-section-body">
         <form id="envForm" class="config-form-grid">
             <input type="hidden" id="envId" value="">
+
+            <div class="form-field-group">
+                <label for="formUserSelect">
+                    <span class="label-icon">👤</span>
+                    选择用户
+                    <span class="required-mark">*</span>
+                </label>
+                <select id="formUserSelect" required></select>
+                <span class="input-hint">为下级账号配置环境变量</span>
+            </div>
 
             <div class="form-field-group">
                 <label>变量名（自动生成）</label>
@@ -213,6 +226,7 @@
 .config-section-header {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     padding: 18px 24px;
     border-bottom: 1px solid var(--border-color);
     background: rgba(0,0,0,0.02);
@@ -224,55 +238,30 @@
     font-weight: 600;
 }
 
-.config-section-body {
-    padding: 24px;
-}
-
-/* 用户选择器 */
-.user-selector-group {
-    display: flex;
-    flex-direction: column;
-}
-
-.user-selector-group label {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-color);
-    margin-bottom: 8px;
+.header-actions {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 12px;
 }
 
-.label-icon {
-    font-size: 14px;
-}
-
-.required-mark {
-    color: #ef4444;
-    font-weight: 600;
-    margin-left: 2px;
-}
-
-.user-selector-group select {
-    padding: 12px 16px;
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    font-size: 14px;
-    background: var(--bg-color);
+.btn-close-form {
+    background: transparent;
+    border: none;
+    font-size: 20px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
     transition: all 0.2s;
 }
 
-.user-selector-group select:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+.btn-close-form:hover {
+    background: rgba(0,0,0,0.05);
+    color: var(--text-color);
 }
 
-.input-hint {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 6px;
+.config-section-body {
+    padding: 24px;
 }
 
 /* 环境列表卡片 */
@@ -289,6 +278,44 @@
     border-radius: 20px;
     font-size: 13px;
     font-weight: 500;
+}
+
+/* 筛选区域 */
+.list-filters {
+    display: flex;
+    gap: 16px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(0,0,0,0.01);
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.filter-group select {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 13px;
+    background: var(--bg-color);
+    transition: all 0.2s;
+    min-width: 120px;
+}
+
+.filter-group select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
 /* 表格容器 */
@@ -325,16 +352,20 @@
     text-align: center;
 }
 
+.config-table thead th.col-user {
+    width: 140px;
+}
+
 .config-table thead th.col-name {
     width: 100px;
 }
 
 .config-table thead th.col-value {
-    min-width: 180px;
+    min-width: 160px;
 }
 
 .config-table thead th.col-ip {
-    width: 200px;
+    width: 180px;
 }
 
 .config-table thead th.col-status {
@@ -343,7 +374,7 @@
 }
 
 .config-table thead th.col-remark {
-    width: 140px;
+    width: 120px;
 }
 
 .config-table thead th.col-actions {
@@ -376,6 +407,51 @@
     font-size: 11px;
     color: var(--text-muted);
     background: rgba(0, 0, 0, 0.02);
+}
+
+.config-table tbody td.col-user {
+    font-size: 12px;
+}
+
+.user-info-cell {
+    display: flex;
+    flex-direction: column;
+}
+
+.user-name {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.user-nickname {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.user-role-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    margin-top: 4px;
+    width: fit-content;
+}
+
+.user-role-badge.role-admin {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+}
+
+.user-role-badge.role-agent {
+    background: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
+}
+
+.user-role-badge.role-normal {
+    background: rgba(107, 114, 128, 0.1);
+    color: #4b5563;
 }
 
 .config-table tbody td.col-name {
@@ -558,6 +634,16 @@
     gap: 6px;
 }
 
+.label-icon {
+    font-size: 14px;
+}
+
+.required-mark {
+    color: #ef4444;
+    font-weight: 600;
+    margin-left: 2px;
+}
+
 .auto-name-tag {
     padding: 10px 16px;
     background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
@@ -585,6 +671,12 @@
     outline: none;
     border-color: #667eea;
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.input-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 6px;
 }
 
 .form-actions-full {
@@ -736,12 +828,24 @@
     .config-table tbody td {
         padding: 10px 8px;
     }
+
+    .list-filters {
+        flex-direction: column;
+    }
+
+    .filter-group {
+        width: 100%;
+    }
+
+    .filter-group select {
+        width: 100%;
+    }
 }
 </style>
 
 <script>
 let currentConfigId = null;
-let envCache = [];
+let allEnvs = [];  // 存储所有用户的环境变量
 let availableIPs = [];
 let managedUsers = [];
 const currentUser = getCurrentUser();
@@ -750,43 +854,25 @@ const currentUser = getCurrentUser();
 
 /**
  * 发起 API 请求
- * @param {string} url - 请求路径（会自动添加 /api 前缀）
- * @param {object} options - fetch 选项
- * @returns {Promise<object>} 响应数据
  */
 async function apiRequest(url, options = {}) {
     const defaultOpts = {
-        headers: {
-            'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
     };
-
-    // 添加 token
     const token = localStorage.getItem('access_token');
     if (token) {
         defaultOpts.headers['Authorization'] = `Bearer ${token}`;
     }
-
     const finalOpts = { ...defaultOpts, ...options };
-
-    // 处理 body
     if (finalOpts.body && typeof finalOpts.body === 'object') {
         finalOpts.body = JSON.stringify(finalOpts.body);
     }
-
     const response = await fetch(`/api${url}`, finalOpts);
-
-    // 处理 204 No Content
-    if (response.status === 204) {
-        return null;
-    }
-
+    if (response.status === 204) return null;
     const data = await response.json();
-
     if (!response.ok) {
         throw new Error(data.detail || data.message || '请求失败');
     }
-
     return data;
 }
 
@@ -807,19 +893,14 @@ function getCurrentUser() {
 
 /**
  * 显示提示消息
- * @param {string} message - 消息内容
- * @param {string} type - 消息类型: success/error/warning/info
  */
 function showToast(message, type = 'info') {
-    // 移除已有的 toast
     const existing = document.querySelector('.toast-message');
     if (existing) existing.remove();
 
     const toast = document.createElement('div');
     toast.className = `toast-message toast-${type}`;
     toast.textContent = message;
-
-    // 添加样式
     toast.style.cssText = `
         position: fixed;
         top: 20px;
@@ -834,7 +915,6 @@ function showToast(message, type = 'info') {
         font-size: 14px;
     `;
 
-    // 添加动画
     if (!document.querySelector('#toast-style')) {
         const style = document.createElement('style');
         style.id = 'toast-style';
@@ -861,45 +941,196 @@ function showToast(message, type = 'info') {
 
 // ==================== 主要功能函数 ====================
 
-async function loadManagedUsers() {
+/**
+ * 加载所有可管理用户的环境变量
+ */
+async function loadAllEnvs() {
     try {
-        const sel = document.getElementById('userSelect');
-        sel.innerHTML = '<option value="">加载中...</option>';
-        const res = await apiRequest('/config-envs/managed-users');
-        managedUsers = res && res.data ? res.data : [];
-        sel.innerHTML = '';
+        const tbody = document.getElementById('envTableBody');
+        tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">加载中...</td></tr>';
+
+        // 获取可管理用户列表
+        const usersRes = await apiRequest('/config-envs/managed-users');
+        managedUsers = usersRes && usersRes.data ? usersRes.data : [];
+
         if (!managedUsers.length) {
-            sel.innerHTML = '<option value="">暂无可管理的用户</option>';
-            currentConfigId = null;
-            document.getElementById('envTableBody').innerHTML = '<tr><td colspan="7" class="loading-cell">暂无数据</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">暂无可管理的用户</td></tr>';
+            updateEnvCount(0);
             return;
         }
-        managedUsers.forEach(u => {
-            const opt = document.createElement('option');
-            opt.value = u.id;
-            opt.textContent = `${u.id} - ${u.username}${u.nickname ? '（'+u.nickname+'）' : ''}`;
-            sel.appendChild(opt);
-        });
-        sel.value = managedUsers[0].id;
-        await ensureDefaultConfig(sel.value);
+
+        // 为每个用户获取环境变量
+        allEnvs = [];
+        for (const user of managedUsers) {
+            try {
+                // 确保用户有默认配置并获取config_id
+                const configRes = await apiRequest(`/config-envs/users/${user.id}/default-config`, { method: 'POST' });
+                const configId = configRes && configRes.config_id;
+
+                if (configId) {
+                    // 获取环境变量
+                    const envs = await apiRequest(`/config-envs/configs/${configId}/envs`);
+                    if (envs && envs.length) {
+                        envs.forEach(env => {
+                            allEnvs.push({
+                                ...env,
+                                user_id: user.id,
+                                user_name: user.username,
+                                user_nickname: user.nickname,
+                                user_role: user.role,
+                                config_id: configId
+                            });
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error(`加载用户 ${user.id} 的环境变量失败:`, err);
+            }
+        }
+
+        // 更新用户筛选器
+        updateUserFilter();
+
+        // 渲染表格
+        renderEnvTable();
+
+        // 加载可用IP
         await loadAvailableIPs();
-        await loadEnvList();
+
     } catch (err) {
         console.error(err);
-        showToast(err.message || '加载用户失败', 'error');
-        const sel = document.getElementById('userSelect');
-        sel.innerHTML = '<option value="">加载失败，请重试</option>';
-        currentConfigId = null;
+        showToast(err.message || '加载数据失败', 'error');
+        document.getElementById('envTableBody').innerHTML = '<tr><td colspan="8" class="loading-cell">加载失败，请重试</td></tr>';
     }
 }
 
-async function ensureDefaultConfig(userId) {
-    if (!userId) {
-        currentConfigId = null;
+/**
+ * 更新用户筛选器
+ */
+function updateUserFilter() {
+    const filter = document.getElementById('userFilter');
+    filter.innerHTML = '<option value="">全部用户</option>';
+    managedUsers.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = `${u.username}${u.nickname ? '（'+u.nickname+'）' : ''}`;
+        filter.appendChild(opt);
+    });
+
+    // 同时更新表单中的用户选择器
+    const formSelect = document.getElementById('formUserSelect');
+    formSelect.innerHTML = '';
+    managedUsers.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = `${u.username}${u.nickname ? '（'+u.nickname+'）' : ''}`;
+        formSelect.appendChild(opt);
+    });
+}
+
+/**
+ * 渲染环境变量表格
+ */
+function renderEnvTable() {
+    const tbody = document.getElementById('envTableBody');
+    const userFilter = document.getElementById('userFilter').value;
+    const statusFilter = document.getElementById('statusFilter').value;
+
+    // 应用筛选
+    let filteredEnvs = allEnvs;
+    if (userFilter) {
+        filteredEnvs = filteredEnvs.filter(env => String(env.user_id) === String(userFilter));
+    }
+    if (statusFilter) {
+        filteredEnvs = filteredEnvs.filter(env => env.status === statusFilter);
+    }
+
+    if (!filteredEnvs.length) {
+        const msg = allEnvs.length === 0 ? '暂无环境变量，点击"新增变量"添加' : '没有符合筛选条件的数据';
+        tbody.innerHTML = `<tr><td colspan="8" class="loading-cell">${msg}</td></tr>`;
+        updateEnvCount(0);
         return;
     }
-    const res = await apiRequest(`/config-envs/users/${userId}/default-config`, { method: 'POST' });
-    currentConfigId = res && res.config_id;
+
+    tbody.innerHTML = '';
+    filteredEnvs.forEach(env => {
+        const tr = document.createElement('tr');
+        const ipInfo = env.ip_info || {};
+
+        let statusHtml = '';
+        if (env.status === 'valid') {
+            statusHtml = '<span class="status-badge valid"><span class="status-dot"></span>启用</span>';
+        } else {
+            if (env.disabled_until) {
+                const remaining = getRemainingTime(env.disabled_until);
+                statusHtml = `<span class="status-badge invalid"><span class="status-dot"></span>禁用</span><br><small class="countdown">${remaining}</small>`;
+            } else {
+                statusHtml = '<span class="status-badge disabled"><span class="status-dot"></span>禁用</span>';
+            }
+        }
+
+        // 用户角色标签
+        const roleLabels = { admin: '管理员', agent: '代理', normal: '普通' };
+        const roleClass = { admin: 'role-admin', agent: 'role-agent', normal: 'role-normal' };
+        const userRoleBadge = `<span class="user-role-badge ${roleClass[env.user_role] || 'role-normal'}">${roleLabels[env.user_role] || '普通'}</span>`;
+
+        tr.innerHTML = `
+            <td class="col-id">${env.id}</td>
+            <td class="col-user">
+                <div class="user-info-cell">
+                    <span class="user-name">${env.user_name}</span>
+                    ${env.user_nickname ? `<span class="user-nickname">${env.user_nickname}</span>` : ''}
+                    ${userRoleBadge}
+                </div>
+            </td>
+            <td class="col-name">${env.env_name}</td>
+            <td class="col-value"><span class="text-ellipsis" title="${env.env_value || ''}">${env.env_value || '-'}</span></td>
+            <td class="col-ip">
+                ${env.ip_id ? `
+                    <div class="text-ellipsis" title="${ipInfo.proxy_url || ''}">${ipInfo.proxy_url || '-'}</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${ipInfo.region || ''} ${ipInfo.vendor ? '('+ipInfo.vendor+')' : ''}</div>
+                    <div style="font-size:10px;color:#94a3b8;">容量: ${ipInfo.used || 0}/${ipInfo.max_users || 2}</div>
+                ` : '<span style="color:#94a3b8;">未配置</span>'}
+            </td>
+            <td class="col-status">${statusHtml}</td>
+            <td class="col-remark"><span class="text-ellipsis" style="max-width:100px;" title="${env.remark || ''}">${env.remark || '-'}</span></td>
+            <td class="col-actions">
+                <div class="table-actions">
+                    <button class="btn-link" onclick="editEnv(${env.id}, ${env.config_id})">编辑</button>
+                    <button class="btn-link" onclick="${env.status === 'valid' ? 'disableEnv' : 'enableEnv'}(${env.id}, ${env.config_id})">${env.status === 'valid' ? '禁用' : '启用'}</button>
+                    <button class="btn-link danger" onclick="deleteEnv(${env.id}, ${env.config_id})">删除</button>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    updateEnvCount(filteredEnvs.length);
+}
+
+function updateEnvCount(count) {
+    const badge = document.getElementById('envCountBadge');
+    if (badge) {
+        badge.textContent = `${count} 条记录`;
+    }
+}
+
+function getRemainingTime(disabledUntilStr) {
+    const now = new Date();
+    const disabledUntil = new Date(disabledUntilStr);
+    const diff = disabledUntil - now;
+
+    if (diff <= 0) return '即将恢复';
+
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+
+    if (days > 0) {
+        return `剩余${days}天${hours}小时`;
+    } else {
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        return `剩余${hours}小时${minutes}分`;
+    }
 }
 
 async function loadAvailableIPs() {
@@ -939,106 +1170,19 @@ function renderIPOptions(selectedId = '') {
     });
 }
 
-async function loadEnvList() {
-    if (!currentConfigId) {
-        document.getElementById('envTableBody').innerHTML = '<tr><td colspan="7" class="loading-cell">请选择用户</td></tr>';
-        updateEnvCount(0);
-        return;
-    }
-    try {
-        const envs = await apiRequest(`/config-envs/configs/${currentConfigId}/envs`);
-        envCache = envs || [];
-        const nextName = await computeNextEnvName();
-        document.getElementById('autoEnvName').textContent = `将生成 ${nextName}`;
-        renderEnvTable();
-    } catch (err) {
-        console.error(err);
-        showToast(err.message || '加载环境变量失败', 'error');
-    }
-}
-
-function renderEnvTable() {
-    const tbody = document.getElementById('envTableBody');
-    if (!envCache || envCache.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">暂无环境变量，点击"新增变量"添加</td></tr>';
-        updateEnvCount(0);
-        computeNextEnvName().then(name => {
-            document.getElementById('autoEnvName').textContent = `将生成 ${name}`;
-        });
-        return;
-    }
-    tbody.innerHTML = '';
-    envCache.forEach(env => {
-        const tr = document.createElement('tr');
-        const ipInfo = env.ip_info || {};
-
-        let statusHtml = '';
-        if (env.status === 'valid') {
-            statusHtml = '<span class="status-badge valid"><span class="status-dot"></span>启用</span>';
-        } else {
-            if (env.disabled_until) {
-                const remaining = getRemainingTime(env.disabled_until);
-                statusHtml = `<span class="status-badge invalid"><span class="status-dot"></span>禁用</span><br><small class="countdown">${remaining}</small>`;
-            } else {
-                statusHtml = '<span class="status-badge disabled"><span class="status-dot"></span>禁用</span>';
-            }
-        }
-
-        tr.innerHTML = `
-            <td class="col-id">${env.id}</td>
-            <td class="col-name">${env.env_name}</td>
-            <td class="col-value"><span class="text-ellipsis" title="${env.env_value || ''}">${env.env_value || '-'}</span></td>
-            <td class="col-ip">
-                ${env.ip_id ? `
-                    <div class="text-ellipsis" title="${ipInfo.proxy_url || ''}">${ipInfo.proxy_url || '-'}</div>
-                    <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${ipInfo.region || ''} ${ipInfo.vendor ? '('+ipInfo.vendor+')' : ''}</div>
-                    <div style="font-size:10px;color:#94a3b8;">容量: ${ipInfo.used || 0}/${ipInfo.max_users || 2}</div>
-                ` : '<span style="color:#94a3b8;">未配置</span>'}
-            </td>
-            <td class="col-status">${statusHtml}</td>
-            <td class="col-remark"><span class="text-ellipsis" style="max-width:120px;" title="${env.remark || ''}">${env.remark || '-'}</span></td>
-            <td class="col-actions">
-                <div class="table-actions">
-                    <button class="btn-link" onclick="editEnv(${env.id})">编辑</button>
-                    <button class="btn-link" onclick="${env.status === 'valid' ? 'disableEnv' : 'enableEnv'}(${env.id})">${env.status === 'valid' ? '禁用' : '启用'}</button>
-                    <button class="btn-link danger" onclick="deleteEnv(${env.id})">删除</button>
-                </div>
-            </td>
-        `;
-        tbody.appendChild(tr);
-    });
-    updateEnvCount(envCache.length);
-}
-
-function updateEnvCount(count) {
-    const badge = document.getElementById('envCountBadge');
-    if (badge) {
-        badge.textContent = `${count} 条记录`;
-    }
-}
-
-function getRemainingTime(disabledUntilStr) {
-    const now = new Date();
-    const disabledUntil = new Date(disabledUntilStr);
-    const diff = disabledUntil - now;
-
-    if (diff <= 0) return '即将恢复';
-
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-
-    if (days > 0) {
-        return `剩余${days}天${hours}小时`;
-    } else {
-        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        return `剩余${hours}小时${minutes}分`;
-    }
-}
-
 function computeNextEnvName() {
     return apiRequest('/config-envs/next-name')
         .then(res => res.next_name || 'ksck1')
         .catch(() => 'ksck1');
+}
+
+function showForm() {
+    document.getElementById('formCard').style.display = 'block';
+    document.getElementById('formCard').scrollIntoView({ behavior: 'smooth' });
+}
+
+function hideForm() {
+    document.getElementById('formCard').style.display = 'none';
 }
 
 function resetForm() {
@@ -1046,34 +1190,41 @@ function resetForm() {
     document.getElementById('envValue').value = '';
     document.getElementById('envRemark').value = '';
     document.getElementById('ipSelect').value = '';
+    document.getElementById('formUserSelect').value = managedUsers.length > 0 ? managedUsers[0].id : '';
     computeNextEnvName().then(name => {
         document.getElementById('autoEnvName').textContent = `将生成 ${name}`;
     });
 }
 
-function editEnv(envId) {
-    const env = envCache.find(e => e.id === envId);
+function editEnv(envId, configId) {
+    const env = allEnvs.find(e => e.id === envId && e.config_id === configId);
     if (!env) return;
+
+    currentConfigId = configId;
     document.getElementById('envId').value = env.id;
     document.getElementById('envValue').value = env.env_value;
     document.getElementById('envRemark').value = env.remark || '';
+    document.getElementById('formUserSelect').value = env.user_id;
     renderIPOptions(env.ip_id || '');
     document.getElementById('ipSelect').value = env.ip_id ? String(env.ip_id) : '';
     document.getElementById('autoEnvName').textContent = env.env_name;
+
+    showForm();
 }
 
 async function saveEnv(e) {
     e.preventDefault();
-    if (!currentConfigId) {
-        showToast('请先选择用户', 'warning');
-        return;
-    }
-    const targetUserId = document.getElementById('userSelect').value;
+
     const envId = document.getElementById('envId').value;
     const cookie = document.getElementById('envValue').value.trim();
     const remark = document.getElementById('envRemark').value.trim();
     const ipIdStr = document.getElementById('ipSelect').value;
+    const targetUserId = document.getElementById('formUserSelect').value;
 
+    if (!targetUserId) {
+        showToast('请选择用户', 'warning');
+        return;
+    }
     if (!cookie) {
         showToast('ksck 不能为空', 'warning');
         return;
@@ -1086,23 +1237,35 @@ async function saveEnv(e) {
         showToast('请选择IP', 'warning');
         return;
     }
+
     const ipId = Number.parseInt(ipIdStr, 10);
     if (!Number.isFinite(ipId)) {
         showToast('IP 选择无效，请重新选择', 'warning');
         return;
     }
-    const payload = {
-        cookie,
-        remark,
-        ip_id: ipId
-    };
 
-    if (!envId && currentUser && currentUser.role === 'normal' && String(targetUserId) === String(currentUser.id)) {
-        showToast('普通用户无权为自己新增环境变量', 'error');
-        return;
-    }
-
+    // 获取目标用户的config_id
     try {
+        const configRes = await apiRequest(`/config-envs/users/${targetUserId}/default-config`, { method: 'POST' });
+        const targetConfigId = configRes && configRes.config_id;
+
+        if (!targetConfigId) {
+            showToast('获取用户配置失败', 'error');
+            return;
+        }
+
+        // 普通用户检查
+        if (!envId && currentUser && currentUser.role === 'normal' && String(targetUserId) === String(currentUser.id)) {
+            showToast('普通用户无权为自己新增环境变量', 'error');
+            return;
+        }
+
+        const payload = {
+            cookie,
+            remark,
+            ip_id: ipId
+        };
+
         if (envId) {
             await apiRequest(`/config-envs/configs/${currentConfigId}/envs/${envId}`, {
                 method: 'PUT',
@@ -1110,46 +1273,50 @@ async function saveEnv(e) {
             });
             showToast('更新成功', 'success');
         } else {
-            await apiRequest(`/config-envs/configs/${currentConfigId}/envs`, {
+            await apiRequest(`/config-envs/configs/${targetConfigId}/envs`, {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
             showToast('新增成功', 'success');
         }
+
         resetForm();
-        await loadEnvList();
+        hideForm();
+        await loadAllEnvs();
+
     } catch (err) {
         console.error(err);
         showToast(err.message || '保存失败', 'error');
     }
 }
 
-async function deleteEnv(envId) {
+async function deleteEnv(envId, configId) {
     if (!confirm('确认删除该环境变量？')) return;
     try {
-        await apiRequest(`/config-envs/configs/${currentConfigId}/envs/${envId}`, {
+        await apiRequest(`/config-envs/configs/${configId}/envs/${envId}`, {
             method: 'DELETE'
         });
         showToast('已删除', 'success');
-        await loadEnvList();
+        await loadAllEnvs();
     } catch (err) {
         console.error(err);
         showToast(err.message || '删除失败', 'error');
     }
 }
 
-async function enableEnv(envId) {
+async function enableEnv(envId, configId) {
     try {
-        await apiRequest(`/config-envs/configs/${currentConfigId}/envs/${envId}/enable`, { method: 'POST' });
+        await apiRequest(`/config-envs/configs/${configId}/envs/${envId}/enable`, { method: 'POST' });
         showToast('已启用', 'success');
-        await loadEnvList();
+        await loadAllEnvs();
     } catch (err) {
         console.error(err);
         showToast(err.message || '启用失败', 'error');
     }
 }
 
-async function disableEnv(envId) {
+async function disableEnv(envId, configId) {
+    currentConfigId = configId;
     showDisableDaysModal(envId);
 }
 
@@ -1204,42 +1371,37 @@ async function confirmDisableEnv(envId, days) {
         });
         showToast(res.message || `已禁用，将在${days}天后自动恢复`, 'success');
         closeGlobalModal();
-        await loadEnvList();
+        await loadAllEnvs();
     } catch (err) {
         console.error(err);
         showToast(err.message || '禁用失败', 'error');
     }
 }
 
+// ==================== 事件监听 ====================
+
 document.getElementById('envForm').addEventListener('submit', saveEnv);
-document.getElementById('refreshUsers').addEventListener('click', async () => {
-    await loadManagedUsers();
+document.getElementById('refreshAll').addEventListener('click', async () => {
+    await loadAllEnvs();
 });
 document.getElementById('startCreateEnv').addEventListener('click', async () => {
-    const userId = document.getElementById('userSelect').value;
-    if (!userId) {
-        showToast('请先选择用户', 'warning');
+    if (!managedUsers.length) {
+        showToast('暂无可管理的用户', 'warning');
         return;
     }
-    if (currentUser && currentUser.role === 'normal' && String(userId) === String(currentUser.id)) {
-        showToast('普通用户无权为自己新增环境变量', 'warning');
-        return;
-    }
-    await ensureDefaultConfig(userId);
-    renderIPOptions();
     resetForm();
+    showForm();
 });
-document.getElementById('cancelEdit').addEventListener('click', resetForm);
+document.getElementById('closeFormBtn').addEventListener('click', hideForm);
+document.getElementById('cancelEdit').addEventListener('click', () => {
+    resetForm();
+    hideForm();
+});
 
-document.getElementById('userSelect').addEventListener('change', async (e) => {
-    const userId = e.target.value;
-    await ensureDefaultConfig(userId);
-    resetForm();
-    await loadAvailableIPs();
-    await loadEnvList();
-});
+document.getElementById('userFilter').addEventListener('change', renderEnvTable);
+document.getElementById('statusFilter').addEventListener('change', renderEnvTable);
 
 // 初始化
-loadManagedUsers();
+loadAllEnvs();
 </script>
 {% endblock %}

@@ -43,7 +43,7 @@ async def create_withdraw_request(
 
     now = datetime.now()
 
-    with db.begin():
+    try:
         wallet = _get_or_create_wallet_locked(db, current_user.id)
         available = int(wallet.available_coins or 0)
         if available < amount:
@@ -74,6 +74,11 @@ async def create_withdraw_request(
             )
         )
 
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     db.refresh(req)
     return req
 
@@ -103,7 +108,7 @@ async def cancel_withdraw_request(
     """用户取消提现（仅 PENDING）并回滚余额"""
     now = datetime.now()
 
-    with db.begin():
+    try:
         req = (
             db.query(WithdrawRequest)
             .filter(WithdrawRequest.withdraw_id == int(withdraw_id))
@@ -135,6 +140,11 @@ async def cancel_withdraw_request(
             )
         )
 
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     db.refresh(req)
     return req
 
@@ -165,7 +175,7 @@ async def approve_withdraw_request(
     """管理员审核通过（可选环节）"""
     now = datetime.now()
 
-    with db.begin():
+    try:
         req = (
             db.query(WithdrawRequest)
             .filter(WithdrawRequest.withdraw_id == int(withdraw_id))
@@ -182,6 +192,11 @@ async def approve_withdraw_request(
         req.processed_by = current_user.id
         req.reject_reason = None
 
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     db.refresh(req)
     return req
 
@@ -195,7 +210,7 @@ async def pay_withdraw_request(
     """管理员标记已打款（最简版：不做额外余额变动，仅审计）"""
     now = datetime.now()
 
-    with db.begin():
+    try:
         req = (
             db.query(WithdrawRequest)
             .filter(WithdrawRequest.withdraw_id == int(withdraw_id))
@@ -224,6 +239,11 @@ async def pay_withdraw_request(
             )
         )
 
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
     db.refresh(req)
     return req
 
@@ -238,7 +258,7 @@ async def reject_withdraw_request(
     """管理员驳回提现并回滚余额"""
     now = datetime.now()
 
-    with db.begin():
+    try:
         req = (
             db.query(WithdrawRequest)
             .filter(WithdrawRequest.withdraw_id == int(withdraw_id))
@@ -269,6 +289,11 @@ async def reject_withdraw_request(
                 remark=f"withdraw rejected #{req.withdraw_id}",
             )
         )
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     db.refresh(req)
     return req

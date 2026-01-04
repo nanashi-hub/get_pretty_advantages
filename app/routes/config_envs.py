@@ -484,6 +484,7 @@ async def list_envs(
                 "ip_info": ip_info,
                 "status": env.status,
                 "remark": env.remark,
+                "disabled_until": env.disabled_until.isoformat() if env.disabled_until else None,
                 "created_at": env.created_at,
                 "updated_at": env.updated_at,
             }
@@ -572,6 +573,7 @@ async def create_env(
         else None,
         "status": env.status,
         "remark": env.remark,
+        "disabled_until": env.disabled_until.isoformat() if env.disabled_until else None,
         "created_at": env.created_at,
         "updated_at": env.updated_at,
     }
@@ -688,6 +690,7 @@ async def update_env(
         else None,
         "status": env.status,
         "remark": env.remark,
+        "disabled_until": env.disabled_until.isoformat() if env.disabled_until else None,
         "created_at": env.created_at,
         "updated_at": env.updated_at,
     }
