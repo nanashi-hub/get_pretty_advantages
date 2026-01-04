@@ -572,6 +572,15 @@
     color: #991b1b;
 }
 
+.status-badge.status-active {
+    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    color: #1d4ed8;
+}
+
+.period-active-row {
+    background: rgba(59, 130, 246, 0.06);
+}
+
 /* 操作单元格 */
 .action-cell {
     display: flex;
@@ -607,6 +616,18 @@
     background: #6366f1;
     color: white;
     border-color: #6366f1;
+}
+
+.action-cell .btn-danger {
+    background: white;
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.action-cell .btn-danger:hover {
+    background: #ef4444;
+    color: white;
+    border-color: #ef4444;
 }
 
 /* 表格链接 */
@@ -694,20 +715,26 @@ async function loadPeriods() {
 
         body.innerHTML = periods.map(p => {
             const st = periodStatusLabel(p.status);
+            const isActive = Number(p.is_active || 0) === 1;
             const bps = `<span style="font-size:11px;color:#64748b;">自留:${p.host_bps} | 平台:${p.collect_bps} | +1:${p.l1_bps} | +2:${p.l2_bps}</span>`;
             return `
-                <tr>
+                <tr class="${isActive ? 'period-active-row' : ''}">
                     <td class="col-id">${p.period_id}</td>
                     <td>${p.period_start} ~ ${p.period_end}</td>
                     <td>${p.pay_start} ~ ${p.pay_end}</td>
                     <td style="text-align:center;">${p.coin_rate}</td>
                     <td>${bps}</td>
-                    <td>${formatStatusBadge(st.type, st.text)}</td>
+                    <td>
+                        ${formatStatusBadge(st.type, st.text)}
+                        ${isActive ? formatStatusBadge('active', '生效') : ''}
+                    </td>
                     <td class="action-cell">
+                        ${isActive ? `<button class="btn btn-secondary btn-sm" disabled>已应用</button>` : `<button class="btn btn-primary btn-sm" onclick="activatePeriod(${p.period_id})">应用</button>`}
                         <button class="btn btn-primary btn-sm" onclick="generatePeriod(${p.period_id}, false)">生成</button>
                         <button class="btn btn-secondary btn-sm" onclick="generatePeriod(${p.period_id}, true)">重跑</button>
                         <button class="btn btn-secondary btn-sm" onclick="generateCommissions(${p.period_id})">补分成</button>
                         <button class="btn btn-secondary btn-sm" onclick="unlockCommissions(${p.period_id})">解锁</button>
+                        <button class="btn btn-danger btn-sm" onclick="deletePeriod(${p.period_id}, '${p.period_start}~${p.period_end}')">删除</button>
                     </td>
                 </tr>
             `;
@@ -793,6 +820,38 @@ async function unlockCommissions(periodId) {
         showToast(`已执行解锁：${unlockedUsers} 人，${unlockedCoins} coins`, 'success');
     } catch (error) {
         showToast(error.message || '解锁失败', 'error');
+    }
+}
+
+async function activatePeriod(periodId) {
+    try {
+        await apiRequest(`/settlement-periods/${periodId}/activate`, { method: 'POST' });
+        showToast('已应用为当前生效期', 'success');
+        await loadPeriods();
+    } catch (error) {
+        showToast(error.message || '设置失败', 'error');
+    }
+}
+
+async function deletePeriod(periodId, periodLabel) {
+    const promptText = [
+        '⚠️ 危险操作检测！',
+        '操作类型：删除结算期',
+        `影响范围：将删除该结算期及其关联的快照/汇总/应缴/分成数据（仅在无缴费记录时允许）`,
+        '风险评估：删除后无法恢复，可能影响对账与审计',
+        '',
+        `请在下方输入“确认”继续（结算期：${periodLabel}，ID=${periodId}）：`,
+    ].join('\n');
+    const input = prompt(promptText);
+    if (input !== '确认') return;
+
+    try {
+        await apiRequest(`/settlement-periods/${periodId}`, { method: 'DELETE' });
+        showToast('结算期已删除', 'success');
+        await loadPeriods();
+        await loadPayments();
+    } catch (error) {
+        showToast(error.message || '删除失败', 'error');
     }
 }
 

@@ -42,6 +42,11 @@ def init_db():
     _add_column_if_not_exists('user_script_envs', 'disabled_until', 'DATETIME NULL COMMENT "禁用至何时，到期自动恢复"')
     _add_column_if_not_exists('user_script_envs', 'disable_days', 'INT NULL COMMENT "禁用天数（3/5/7）"')
     _add_column_if_not_exists('user_script_envs', 'disabled_at', 'DATETIME NULL COMMENT "禁用开始时间"')
+    _add_column_if_not_exists(
+        'settlement_periods',
+        'is_active',
+        'INT NOT NULL DEFAULT 0 COMMENT "是否为当前生效期：0=否 1=是（全局只能有一个为1）"',
+    )
     _migrate_user_script_envs_user_id()
     _migrate_earning_records_user_id()
 

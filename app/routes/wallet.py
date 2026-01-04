@@ -30,6 +30,10 @@ DEFAULT_COIN_RATE = 10000
 
 
 def _get_current_period(db: Session) -> Optional[SettlementPeriod]:
+    active_period = db.query(SettlementPeriod).filter(SettlementPeriod.is_active == 1).first()
+    if active_period:
+        return active_period
+
     return (
         db.query(SettlementPeriod)
         .filter(SettlementPeriod.status.in_([0, 1]))

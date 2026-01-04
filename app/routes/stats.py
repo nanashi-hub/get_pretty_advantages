@@ -51,7 +51,17 @@ async def get_dashboard_stats(
             SettlementPayment.status == 0
         ).count()
 
-        wallet_balance = 0  # 管理员显示0
+        # 管理员也显示自己的钱包余额
+        wallet = db.query(WalletAccount).filter(WalletAccount.user_id == current_user.id).first()
+        available_coins = int(wallet.available_coins or 0) if wallet else 0
+        period = (
+            db.query(SettlementPeriod)
+            .filter(SettlementPeriod.status.in_([0, 1]))
+            .order_by(SettlementPeriod.period_id.desc())
+            .first()
+        )
+        coin_rate = int(period.coin_rate) if period and int(getattr(period, "coin_rate", 0) or 0) > 0 else 10000
+        wallet_balance = float(available_coins / coin_rate) if coin_rate > 0 else 0.0
     else:
         # 普通用户看自己的数据
         total_users = 0

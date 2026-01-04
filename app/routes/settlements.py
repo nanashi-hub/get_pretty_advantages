@@ -18,6 +18,7 @@ from app.models import (
     SettlementUserPayable,
     User,
     UserRole,
+    WalletLedger,
 )
 from app.schemas import (
     SettlementMeResponse,
@@ -843,17 +844,11 @@ async def delete_settlement_period(
     删除结算期（管理员）
 
     限制：
-    - 只能删除已关闭（status=2）且无用户缴费记录的结算期
-    - 删除后将同时清理关联的关系快照、收益汇总、应缴记录
+    - 仅允许删除“无任何缴费记录”的结算期（避免影响已发生的资金与审计）
+    - 若该期已产生钱包账本流水（wallet_ledger.period_id），也禁止删除
+    - 删除时会同时清理关联的：关系快照/收益汇总/应缴/分成明细
     """
     period = _get_period_or_404(db, period_id)
-
-    # 检查是否已关闭
-    if period.status != 2:
-        raise HTTPException(
-            status_code=400,
-            detail="只能删除已关闭的结算期（当前状态不允许删除）"
-        )
 
     # 检查是否有缴费记录
     payment_count = db.query(SettlementPayment).filter(
@@ -865,17 +860,23 @@ async def delete_settlement_period(
             detail=f"该结算期已有 {payment_count} 条缴费记录，无法删除"
         )
 
-    # 检查是否有应缴记录（有应缴记录说明已生成过结算数据）
-    payable_count = db.query(SettlementUserPayable).filter(
-        SettlementUserPayable.period_id == int(period_id)
-    ).count()
-    if payable_count > 0:
+    # 检查是否已发生钱包入账/解锁流水（强审计表，不允许删除周期后造成断链）
+    ledger_count = db.query(WalletLedger).filter(WalletLedger.period_id == int(period_id)).count()
+    if ledger_count > 0:
         raise HTTPException(
             status_code=400,
-            detail=f"该结算期已有 {payable_count} 条应缴记录，无法删除。请先在数据库中清理相关数据。"
+            detail=f"该结算期已产生 {ledger_count} 条钱包账本流水，无法删除（请走关账/对账流程）"
         )
 
     try:
+        # 若当前为生效期，先取消生效标记
+        if int(period.is_active or 0) == 1:
+            period.is_active = 0
+            db.flush()
+
+        # 先清理分成明细
+        db.query(SettlementCommission).filter(SettlementCommission.period_id == int(period_id)).delete()
+
         # 删除关系快照
         db.query(SettlementReferralSnapshot).filter(
             SettlementReferralSnapshot.period_id == int(period_id)
