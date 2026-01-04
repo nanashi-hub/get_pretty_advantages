@@ -1,63 +1,436 @@
 {% extends "base.html" %}
 
-{% block title %}个人账户{% endblock %}
+{% block title %}个人账户 - 快手账号管理平台{% endblock %}
+
 {% block page_title %}个人账户{% endblock %}
 
+{% block extra_css %}
+<style>
+/* 个人账户页面样式 */
+.account-container {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 24px;
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .account-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* 用户信息卡片 */
+.account-profile-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px;
+    padding: 32px 24px;
+    color: white;
+    text-align: center;
+}
+
+.account-profile-avatar {
+    width: 88px;
+    height: 88px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    margin: 0 auto 16px;
+    backdrop-filter: blur(10px);
+}
+
+.account-profile-name {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.account-profile-role {
+    font-size: 13px;
+    opacity: 0.9;
+    background: rgba(255, 255, 255, 0.2);
+    padding: 4px 12px;
+    border-radius: 20px;
+    display: inline-block;
+}
+
+.account-profile-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.2);
+    margin: 20px 0;
+}
+
+.account-profile-info {
+    text-align: left;
+    font-size: 14px;
+}
+
+.account-profile-info-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.account-profile-info-item:last-child {
+    border-bottom: none;
+}
+
+.account-profile-info-label {
+    opacity: 0.8;
+}
+
+.account-profile-info-value {
+    font-weight: 500;
+}
+
+/* 设置区域 */
+.account-settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.account-settings-card {
+    background: var(--card-bg, #fff);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.account-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-color, #eee);
+}
+
+.account-card-icon {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+}
+
+.account-card-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary, #333);
+}
+
+.account-card-title small {
+    display: block;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-secondary, #999);
+    margin-top: 2px;
+}
+
+/* 表单样式 */
+.account-form-row {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+@media (max-width: 600px) {
+    .account-form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.account-form-group {
+    margin-bottom: 16px;
+}
+
+.account-form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary, #666);
+    margin-bottom: 8px;
+}
+
+.account-form-group input {
+    width: 100%;
+    padding: 12px 16px;
+    border: 1px solid var(--border-color, #e0e0e0);
+    border-radius: 10px;
+    font-size: 14px;
+    transition: all 0.2s;
+    background: var(--input-bg, #fafafa);
+}
+
+.account-form-group input:focus {
+    outline: none;
+    border-color: #667eea;
+    background: var(--card-bg, #fff);
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.account-form-group input:disabled {
+    background: var(--disabled-bg, #f5f5f5);
+    color: var(--text-secondary, #999);
+    cursor: not-allowed;
+}
+
+.account-form-readonly {
+    position: relative;
+}
+
+.account-form-readonly input {
+    padding-left: 36px;
+    background: var(--disabled-bg, #f5f5f5);
+    cursor: not-allowed;
+}
+
+.account-form-readonly::before {
+    content: "🔒";
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    opacity: 0.5;
+}
+
+.account-form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color, #eee);
+}
+
+.account-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.account-btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.account-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.account-btn-secondary {
+    background: var(--input-bg, #f5f5f5);
+    color: var(--text-primary, #333);
+}
+
+.account-btn-secondary:hover {
+    background: var(--border-color, #e0e0e0);
+}
+
+.account-btn-danger {
+    background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+    color: white;
+}
+
+.account-btn-danger:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+/* 状态标签 */
+.account-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.account-status-badge.has-inviter {
+    background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+    color: #059669;
+}
+
+.account-status-badge.no-inviter {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    color: #d97706;
+}
+
+/* 提示信息 */
+.account-hint {
+    display: flex;
+    align-items: start;
+    gap: 8px;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    border-radius: 10px;
+    font-size: 13px;
+    color: #92400e;
+    margin-top: 12px;
+}
+
+.account-hint-icon {
+    font-size: 14px;
+}
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="card">
-    <div class="card-header between">
-        <div>
-            <h3>个人资料</h3>
-            <p class="text-muted">修改昵称、用户名、手机号、密码，以及重新绑定上级。</p>
+<div class="account-container">
+    <!-- 左侧用户信息卡片 -->
+    <div class="account-profile-card">
+        <div class="account-profile-avatar" id="profileAvatar">?</div>
+        <div class="account-profile-name" id="profileNickname">加载中...</div>
+        <div class="account-profile-role" id="profileRole">-</div>
+
+        <div class="account-profile-divider"></div>
+
+        <div class="account-profile-info">
+            <div class="account-profile-info-item">
+                <span class="account-profile-info-label">用户名</span>
+                <span class="account-profile-info-value" id="infoUsername">-</span>
+            </div>
+            <div class="account-profile-info-item">
+                <span class="account-profile-info-label">用户ID</span>
+                <span class="account-profile-info-value" id="infoUserId">-</span>
+            </div>
+            <div class="account-profile-info-item">
+                <span class="account-profile-info-label">手机号</span>
+                <span class="account-profile-info-value" id="infoPhone">-</span>
+            </div>
+            <div class="account-profile-info-item">
+                <span class="account-profile-info-label">上级状态</span>
+                <span class="account-profile-info-value" id="infoInviter">-</span>
+            </div>
+            <div class="account-profile-info-item">
+                <span class="account-profile-info-label">注册时间</span>
+                <span class="account-profile-info-value" id="infoCreatedAt">-</span>
+            </div>
         </div>
     </div>
-    <div class="card-body">
-        <div class="form-grid">
-            <div class="form-group">
-                <label>用户名</label>
-                <input type="text" id="accUsername" placeholder="用户名">
+
+    <!-- 右侧设置区域 -->
+    <div class="account-settings-section">
+        <!-- 基本资料 -->
+        <div class="account-settings-card">
+            <div class="account-card-header">
+                <div class="account-card-icon">👤</div>
+                <div class="account-card-title">
+                    基本资料
+                    <small>修改昵称、联系方式等个人信息</small>
+                </div>
             </div>
-            <div class="form-group">
-                <label>昵称</label>
-                <input type="text" id="accNickname" placeholder="昵称">
+            <div class="account-form-row">
+                <div class="account-form-group account-form-readonly">
+                    <label>用户名（不可修改）</label>
+                    <input type="text" id="accUsername" disabled>
+                </div>
+                <div class="account-form-group">
+                    <label>昵称</label>
+                    <input type="text" id="accNickname" placeholder="请输入昵称">
+                </div>
+                <div class="account-form-group">
+                    <label>手机号</label>
+                    <input type="text" id="accPhone" placeholder="请输入手机号">
+                </div>
+                <div class="account-form-group">
+                    <label>微信ID</label>
+                    <input type="text" id="accWechat" placeholder="请输入微信ID">
+                </div>
             </div>
-            <div class="form-group">
-                <label>手机号</label>
-                <input type="text" id="accPhone" placeholder="手机号">
-            </div>
-            <div class="form-group">
-                <label>微信ID</label>
-                <input type="text" id="accWechat" placeholder="微信ID">
+            <div class="account-form-actions">
+                <button class="account-btn account-btn-primary" id="saveProfile">
+                    <span>💾</span> 保存资料
+                </button>
             </div>
         </div>
-        <div class="form-actions">
-            <button class="btn btn-primary" id="saveProfile">保存资料</button>
-        </div>
 
-        <div class="divider"></div>
-
-        <h4>修改密码</h4>
-        <div class="form-grid">
-            <div class="form-group">
-                <label>新密码</label>
-                <input type="password" id="accPassword" placeholder="新密码">
+        <!-- 修改密码 -->
+        <div class="account-settings-card">
+            <div class="account-card-header">
+                <div class="account-card-icon">🔐</div>
+                <div class="account-card-title">
+                    修改密码
+                    <small>定期修改密码以保护账户安全</small>
+                </div>
+            </div>
+            <div class="account-form-row">
+                <div class="account-form-group">
+                    <label>新密码（至少6位）</label>
+                    <input type="password" id="accPassword" placeholder="请输入新密码">
+                </div>
+                <div class="account-form-group">
+                    <label>确认新密码</label>
+                    <input type="password" id="accPasswordConfirm" placeholder="请再次输入新密码">
+                </div>
+            </div>
+            <div class="account-form-actions">
+                <button class="account-btn account-btn-secondary" id="savePassword">
+                    <span>🔑</span> 更新密码
+                </button>
             </div>
         </div>
-        <div class="form-actions">
-            <button class="btn btn-secondary" id="savePassword">更新密码</button>
-        </div>
 
-        <div class="divider"></div>
-
-        <h4>修改上级</h4>
-        <div class="form-grid">
-            <div class="form-group">
+        <!-- 绑定上级 -->
+        <div class="account-settings-card">
+            <div class="account-card-header">
+                <div class="account-card-icon">🎁</div>
+                <div class="account-card-title">
+                    绑定上级
+                    <small>绑定后可参与推广分成计划</small>
+                </div>
+            </div>
+            <div class="account-form-group">
                 <label>邀请码 / 上级推广码</label>
-                <input type="text" id="accInviteCode" placeholder="输入邀请码">
+                <input type="text" id="accInviteCode" placeholder="请输入邀请码">
+            </div>
+            <div class="account-hint" id="inviterHint">
+                <span class="account-hint-icon">⚠️</span>
+                <span>绑定上级后将无法修改，请确认邀请码正确后再提交。</span>
+            </div>
+            <div class="account-form-actions">
+                <button class="account-btn account-btn-secondary" id="saveInviter">
+                    <span>🔗</span> 绑定上级
+                </button>
             </div>
         </div>
-        <div class="form-actions">
-            <button class="btn btn-secondary" id="saveInviter">更新上级</button>
+
+        <!-- 支付宝账号（提现用） -->
+        <div class="account-settings-card">
+            <div class="account-card-header">
+                <div class="account-card-icon">💙</div>
+                <div class="account-card-title">
+                    支付宝账号
+                    <small>用于分账收款，请填写真实账号</small>
+                </div>
+            </div>
+            <div class="account-form-group">
+                <label>支付宝账号</label>
+                <input type="text" id="accAlipay" placeholder="请输入支付宝账号或手机号">
+            </div>
+            <div class="account-form-actions">
+                <button class="account-btn account-btn-primary" id="saveAlipay">
+                    <span>💾</span> 保存支付宝账号
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -70,15 +443,56 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('saveProfile').addEventListener('click', updateProfile);
     document.getElementById('savePassword').addEventListener('click', updatePassword);
     document.getElementById('saveInviter').addEventListener('click', updateInviter);
+    document.getElementById('saveAlipay').addEventListener('click', updateAlipay);
 });
 
 async function loadProfile() {
     try {
         me = await apiRequest('/account/me');
+
+        // 头像和昵称
+        const displayName = me.nickname || me.username;
+        document.getElementById('profileAvatar').textContent = displayName.charAt(0).toUpperCase();
+        document.getElementById('profileNickname').textContent = displayName;
+
+        // 角色
+        const roleMap = { 'admin': '管理员', 'agent': '代理', 'normal': '普通用户' };
+        document.getElementById('profileRole').textContent = roleMap[me.role] || me.role;
+
+        // 左侧信息
+        document.getElementById('infoUsername').textContent = me.username || '-';
+        document.getElementById('infoUserId').textContent = `#${me.id}`;
+        document.getElementById('infoPhone').textContent = me.phone || '未设置';
+
+        // 上级状态
+        const inviterEl = document.getElementById('infoInviter');
+        if (me.has_inviter) {
+            inviterEl.innerHTML = '<span class="account-status-badge has-inviter">✓ 已绑定</span>';
+        } else {
+            inviterEl.innerHTML = '<span class="account-status-badge no-inviter">未绑定</span>';
+        }
+
+        // 注册时间
+        if (me.created_at) {
+            const date = new Date(me.created_at);
+            document.getElementById('infoCreatedAt').textContent = date.toLocaleDateString('zh-CN');
+        }
+
+        // 表单填充
         document.getElementById('accUsername').value = me.username || '';
         document.getElementById('accNickname').value = me.nickname || '';
         document.getElementById('accPhone').value = me.phone || '';
         document.getElementById('accWechat').value = me.wechat_id || '';
+        document.getElementById('accAlipay').value = me.alipay_account || '';
+
+        // 已绑定上级则禁用输入
+        if (me.has_inviter) {
+            document.getElementById('accInviteCode').disabled = true;
+            document.getElementById('accInviteCode').value = '已绑��上级，无法修改';
+            document.getElementById('accInviteCode').placeholder = '';
+            document.getElementById('saveInviter').disabled = true;
+            document.getElementById('inviterHint').innerHTML = '<span class="account-hint-icon">✓</span><span>您已绑定上级，推广关系无法修改。</span>';
+        }
     } catch (err) {
         showToast(err.message || '加载失败', 'error');
     }
@@ -86,7 +500,6 @@ async function loadProfile() {
 
 async function updateProfile() {
     const payload = {
-        username: document.getElementById('accUsername').value.trim() || null,
         nickname: document.getElementById('accNickname').value.trim() || null,
         phone: document.getElementById('accPhone').value.trim() || null,
         wechat_id: document.getElementById('accWechat').value.trim() || null,
@@ -94,6 +507,7 @@ async function updateProfile() {
     try {
         me = await apiRequest('/account/profile', { method: 'PUT', body: JSON.stringify(payload) });
         showToast('资料已更新', 'success');
+        loadProfile(); // 刷新显示
     } catch (err) {
         showToast(err.message || '更新失败', 'error');
     }
@@ -101,14 +515,22 @@ async function updateProfile() {
 
 async function updatePassword() {
     const newPwd = document.getElementById('accPassword').value;
+    const confirmPwd = document.getElementById('accPasswordConfirm').value;
+
     if (!newPwd || newPwd.length < 6) {
         showToast('密码至少6位', 'warning');
         return;
     }
+    if (newPwd !== confirmPwd) {
+        showToast('两次输入的密码不一致', 'warning');
+        return;
+    }
+
     try {
         await apiRequest('/account/password', { method: 'PUT', body: JSON.stringify({ new_password: newPwd }) });
         showToast('密码已更新', 'success');
         document.getElementById('accPassword').value = '';
+        document.getElementById('accPasswordConfirm').value = '';
     } catch (err) {
         showToast(err.message || '更新失败', 'error');
     }
@@ -122,9 +544,24 @@ async function updateInviter() {
     }
     try {
         await apiRequest('/account/inviter', { method: 'PUT', body: JSON.stringify({ invite_code: code }) });
-        showToast('上级已更新', 'success');
+        showToast('上级已绑定', 'success');
+        loadProfile(); // 刷新显示
     } catch (err) {
-        showToast(err.message || '更新失败', 'error');
+        showToast(err.message || '绑定失败', 'error');
+    }
+}
+
+async function updateAlipay() {
+    const alipayAccount = document.getElementById('accAlipay').value.trim();
+    if (!alipayAccount) {
+        showToast('请输入支付宝账号', 'warning');
+        return;
+    }
+    try {
+        await apiRequest('/account/profile', { method: 'PUT', body: JSON.stringify({ alipay_account: alipayAccount }) });
+        showToast('支付宝账号已保存', 'success');
+    } catch (err) {
+        showToast(err.message || '保存失败', 'error');
     }
 }
 </script>
