@@ -202,6 +202,8 @@ class UserScriptEnv(Base):
     env_value = Column(Text, nullable=False, comment="变量值，例如 CK")
     ql_env_id = Column(String(100), nullable=True, comment="在青龙中的 env id")
     ip_id = Column(BigInteger, ForeignKey("ip_pool.id"), nullable=True, comment="引用的代理IP")
+    ip_mode = Column(String(20), nullable=False, default="system_random", comment="IP模式：system_random/user_pool")
+    user_ip_id = Column(BigInteger, ForeignKey("user_ip_pool.id"), nullable=True, comment="引用的用户自有代理IP")
     status = Column(
         Enum(EnvStatus, values_callable=lambda obj: [e.value for e in obj]),
         nullable=False,
@@ -220,6 +222,7 @@ class UserScriptEnv(Base):
     config = relationship("UserScriptConfig", back_populates="envs")
     user = relationship("User")
     ip = relationship("IPPool")
+    user_ip = relationship("UserIPPool")
 
     def __repr__(self):
         return f"<UserScriptEnv(id={self.id}, env_name='{self.env_name}')>"
@@ -655,6 +658,35 @@ class IPPool(Base):
         return f"<IPPool(id={self.id}, ip={self.ip}, port={self.port})>"
 
 
+class UserIPPool(Base):
+    """用户自有代理 IP 池"""
+    __tablename__ = "user_ip_pool"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=False, index=True, comment="归属用户（users.id）")
+
+    ip = Column(String(45), nullable=False, comment="IP地址")
+    port = Column(Integer, nullable=False, comment="端口")
+    username = Column(String(100), nullable=True, comment="代理账号")
+    password = Column(String(100), nullable=True, comment="代理密码")
+    proxy_url = Column(String(255), nullable=True, comment="代理URL（系统自动拼接或用户提供）")
+
+    region = Column(String(50), nullable=True, comment="地区/城市")
+    expire_date = Column(Date, nullable=True, comment="到期时间")
+    vendor = Column(String(100), nullable=True, comment="IP厂商/供应商")
+    max_users = Column(Integer, nullable=False, default=2, comment="最多同时使用人数")
+    status = Column(String(20), nullable=False, default="active", comment="active/disabled")
+    usage_count = Column(Integer, nullable=False, default=0, comment="当前使用次数（代码维护）")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<UserIPPool(id={self.id}, user_id={self.user_id}, ip={self.ip}, port={self.port})>"
+
+
 # ==================== API 管理与操作审计模块（可选） ====================
 
 class APIKey(Base):
@@ -801,3 +833,16 @@ class AlipayConfig(Base):
 
     def __repr__(self):
         return f"<AlipayConfig(id={self.id}, name='{self.name}', app_id='{self.app_id}')>"
+
+
+class SystemSetting(Base):
+    """系统设置（全局开关/配置）"""
+    __tablename__ = "system_settings"
+
+    setting_key = Column(String(64), primary_key=True, comment="设置键")
+    setting_value = Column(String(64), nullable=False, comment="设置值")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<SystemSetting(setting_key={self.setting_key}, setting_value={self.setting_value})>"

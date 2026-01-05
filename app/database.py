@@ -49,6 +49,7 @@ def init_db():
     )
     _migrate_user_script_envs_user_id()
     _migrate_earning_records_user_id()
+    _ensure_default_system_settings()
 
 
 def _add_column_if_not_exists(table_name: str, column_name: str, column_definition: str):
@@ -219,4 +220,16 @@ def _migrate_earning_records_user_id() -> None:
         _add_foreign_key_if_not_exists('earning_records', 'fk_earning_records_user_id', 'user_id', 'users', 'id')
     except Exception as exc:
         print(f"警告：添加外键 fk_earning_records_user_id 失败，已跳过。原因: {exc}")
+
+
+def _ensure_default_system_settings() -> None:
+    """补齐系统默认设置（幂等）"""
+    with engine.connect() as conn:
+        # 服务模式：commercial=商业版（默认） public=公益版
+        conn.execute(text("""
+            INSERT INTO system_settings(setting_key, setting_value)
+            VALUES ('service_mode', 'commercial')
+            ON DUPLICATE KEY UPDATE setting_key = setting_key
+        """))
+        conn.commit()
 

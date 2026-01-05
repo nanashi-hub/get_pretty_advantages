@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+
+{% block title %}服务模式 - 快手账号管理平台{% endblock %}
+
+{% block page_title %}服务模式{% endblock %}
+
+{% block content %}
+<div class="admin-header-card">
+    <div class="admin-header-info">
+        <div class="admin-header-title">
+            <span class="admin-icon">⚙️</span>
+            <div>
+                <h3>服务模式</h3>
+                <p class="admin-subtitle">商业版 / 公益版（全局开关）</p>
+            </div>
+        </div>
+        <div class="admin-actions">
+            <button class="btn-admin-action" onclick="ServiceMode.load()">
+                <span>🔄</span> 刷新
+            </button>
+        </div>
+    </div>
+</div>
+
+<div class="admin-section-card">
+    <div class="admin-section-header">
+        <h3>当前模式</h3>
+        <div id="serviceModeBadge" class="mode-badge mode-loading">加载中...</div>
+    </div>
+    <div class="admin-section-body">
+        <div class="mode-desc">
+            <div class="mode-item">
+                <div class="mode-title">商业版</div>
+                <div class="mode-detail">结算中心、我的钱包：可见</div>
+            </div>
+            <div class="mode-item">
+                <div class="mode-title">公益版</div>
+                <div class="mode-detail">结算中心、我的钱包：不可见</div>
+            </div>
+        </div>
+
+        <div class="mode-actions">
+            <button class="btn-mode btn-commercial" onclick="ServiceMode.set('commercial')">切换为商业版</button>
+            <button class="btn-mode btn-public" onclick="ServiceMode.set('public')">切换为公益版</button>
+        </div>
+
+        <div class="mode-hint">
+            💡 切换后对所有用户立即生效；前端侧边栏会自动隐藏/显示相关入口。
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.admin-header-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.25);
+}
+
+.admin-header-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.admin-header-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.admin-icon {
+    font-size: 48px;
+    background: rgba(255,255,255,0.2);
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.admin-header-title h3 {
+    margin: 0;
+    color: white;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.admin-subtitle {
+    margin: 4px 0 0 0;
+    color: rgba(255,255,255,0.8);
+    font-size: 14px;
+}
+
+.admin-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.btn-admin-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 18px;
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 10px;
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-admin-action:hover {
+    background: rgba(255,255,255,0.3);
+    transform: translateY(-1px);
+}
+
+.admin-section-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    overflow: hidden;
+}
+
+.admin-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 20px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f8fafc;
+}
+
+.admin-section-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.admin-section-body {
+    padding: 20px;
+}
+
+.mode-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 12px;
+    border: 1px solid transparent;
+}
+
+.mode-loading {
+    background: rgba(107, 114, 128, 0.12);
+    color: #374151;
+    border-color: rgba(107, 114, 128, 0.35);
+}
+
+.mode-commercial {
+    background: rgba(16, 185, 129, 0.12);
+    color: #047857;
+    border-color: rgba(16, 185, 129, 0.35);
+}
+
+.mode-public {
+    background: rgba(245, 158, 11, 0.12);
+    color: #b45309;
+    border-color: rgba(245, 158, 11, 0.35);
+}
+
+.mode-desc {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.mode-item {
+    padding: 14px 16px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.mode-title {
+    font-weight: 800;
+    color: #111827;
+    margin-bottom: 6px;
+}
+
+.mode-detail {
+    font-size: 13px;
+    color: #4b5563;
+}
+
+.mode-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.btn-mode {
+    border: none;
+    border-radius: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.btn-commercial {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+}
+
+.btn-public {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+}
+
+.mode-hint {
+    margin-top: 16px;
+    color: #6b7280;
+    font-size: 13px;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const ServiceMode = {
+    async load() {
+        try {
+            const data = await apiRequest('/service-mode');
+            this.render(data.service_mode);
+        } catch (e) {
+            showToast(e.message || '加载失败', 'error');
+        }
+    },
+    render(mode) {
+        const badge = document.getElementById('serviceModeBadge');
+        if (!badge) return;
+        if (mode === 'public') {
+            badge.className = 'mode-badge mode-public';
+            badge.textContent = '公益版（结算中心/钱包不可见）';
+        } else {
+            badge.className = 'mode-badge mode-commercial';
+            badge.textContent = '商业版（结算中心/钱包可见）';
+        }
+    },
+    async set(mode) {
+        const label = mode === 'public' ? '公益版' : '商业版';
+        if (!confirm(`确认切换为：${label}？`)) return;
+        try {
+            const data = await apiRequest('/admin/service-mode', {
+                method: 'POST',
+                body: JSON.stringify({ service_mode: mode })
+            });
+            this.render(data.service_mode);
+            showToast('已切换服务模式', 'success');
+        } catch (e) {
+            showToast(e.message || '切换失败', 'error');
+        }
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    ServiceMode.load();
+});
+</script>
+{% endblock %}
+

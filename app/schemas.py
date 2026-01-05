@@ -238,8 +238,11 @@ class UserScriptEnvResponse(BaseModel):
     env_name: str
     env_value: str
     ql_env_id: Optional[str] = None
+    ip_mode: str = "system_random"
     ip_id: Optional[int] = None
     ip_info: Optional[IPInfo] = None
+    user_ip_id: Optional[int] = None
+    user_ip_info: Optional[IPInfo] = None
     status: str
     remark: Optional[str] = None
     disabled_until: Optional[datetime] = None

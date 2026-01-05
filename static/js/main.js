@@ -201,6 +201,10 @@ async function loadCurrentUser() {
         saveCurrentUser(user);
         updateUserDisplay(user);
         updateAdminVisibility(user);
+
+        const serviceMode = await loadServiceMode();
+        updateCommercialVisibility(serviceMode);
+
         return user;
     } catch (error) {
         console.error('获取用户信息失败:', error);
@@ -260,6 +264,32 @@ function updateAdminVisibility(user) {
     adminElements.forEach(el => {
         el.style.display = isAdmin ? '' : 'none';
     });
+}
+
+function updateCommercialVisibility(serviceMode) {
+    const isCommercial = serviceMode === 'commercial';
+    const commercialElements = document.querySelectorAll('.commercial-only');
+
+    commercialElements.forEach(el => {
+        el.style.display = isCommercial ? '' : 'none';
+    });
+
+    // 公益版：避免通过直接 URL 访问用户页
+    if (!isCommercial) {
+        const restrictedPaths = ['/settlement-center', '/wallet'];
+        if (restrictedPaths.includes(window.location.pathname)) {
+            window.location.href = '/dashboard';
+        }
+    }
+}
+
+async function loadServiceMode() {
+    try {
+        const data = await apiRequest('/service-mode');
+        return data && data.service_mode ? data.service_mode : 'commercial';
+    } catch (e) {
+        return 'commercial';
+    }
 }
 
 // ==================== 登录处理 ====================

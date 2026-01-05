@@ -117,13 +117,38 @@
             </div>
 
             <div class="form-field-group">
-                <label for="ipSelect">
+                <label for="ipModeSelect">
                     <span class="label-icon">🌐</span>
-                    选择IP
+                    IP 模式
                     <span class="required-mark">*</span>
                 </label>
-                <select id="ipSelect" required></select>
-                <span class="input-hint">每个IP最多分配2个变量，容量满后不会出现</span>
+                <select id="ipModeSelect" required>
+                    <option value="system_random">系统 IP（默认随机分配）</option>
+                    <option value="user_pool">自有代理池（手动选择）</option>
+                </select>
+                <span class="input-hint">系统 IP：不选则随机；自有代理：需先在下方新增/选择</span>
+            </div>
+
+            <div class="form-field-group" id="systemIpGroup">
+                <label for="ipSelect">
+                    <span class="label-icon">🛰️</span>
+                    系统 IP（可选）
+                </label>
+                <select id="ipSelect"></select>
+                <span class="input-hint">留空则系统随机分配；每个IP最多分配2个变量</span>
+            </div>
+
+            <div class="form-field-group" id="userIpGroup" style="display:none;">
+                <label for="userIpSelect">
+                    <span class="label-icon">🧩</span>
+                    自有代理
+                    <span class="required-mark">*</span>
+                </label>
+                <div class="input-row">
+                    <select id="userIpSelect"></select>
+                    <button type="button" class="btn-mini" id="addUserIpBtn">新增</button>
+                </div>
+                <span class="input-hint">自动拼接：socks5://用户名:密码@ip:port</span>
             </div>
 
             <div class="form-actions-full">
@@ -454,6 +479,26 @@
     color: #4b5563;
 }
 
+.ip-mode-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    margin-top: 4px;
+    width: fit-content;
+}
+
+.ip-mode-badge.system {
+    background: rgba(16, 185, 129, 0.1);
+    color: #059669;
+}
+
+.ip-mode-badge.user {
+    background: rgba(168, 85, 247, 0.1);
+    color: #7c3aed;
+}
+
 .config-table tbody td.col-name {
     font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
     font-size: 12px;
@@ -679,6 +724,33 @@
     margin-top: 6px;
 }
 
+.input-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.input-row select {
+    flex: 1;
+}
+
+.btn-mini {
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.02);
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-color);
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-mini:hover {
+    border-color: #667eea;
+    background: rgba(102, 126, 234, 0.08);
+}
+
 .form-actions-full {
     grid-column: 1 / -1;
     display: flex;
@@ -847,6 +919,7 @@
 let currentConfigId = null;
 let allEnvs = [];  // 存储所有用户的环境变量
 let availableIPs = [];
+let availableUserIPs = [];
 let managedUsers = [];
 const currentUser = getCurrentUser();
 
@@ -1070,7 +1143,13 @@ function renderEnvTable() {
     tbody.innerHTML = '';
     filteredEnvs.forEach(env => {
         const tr = document.createElement('tr');
-        const ipInfo = env.ip_info || {};
+        const mode = env.ip_mode || 'system_random';
+        const isUserPool = mode === 'user_pool';
+        const ipInfo = isUserPool ? (env.user_ip_info || {}) : (env.ip_info || {});
+        const hasIp = isUserPool ? env.user_ip_id : env.ip_id;
+        const ipModeBadge = isUserPool
+            ? '<span class="ip-mode-badge user">自有</span>'
+            : '<span class="ip-mode-badge system">系统</span>';
 
         let statusHtml = '';
         if (env.status === 'valid') {
@@ -1101,11 +1180,12 @@ function renderEnvTable() {
             <td class="col-name">${env.env_name}</td>
             <td class="col-value"><span class="text-ellipsis" title="${env.env_value || ''}">${env.env_value || '-'}</span></td>
             <td class="col-ip">
-                ${env.ip_id ? `
+                ${hasIp ? `
+                    ${ipModeBadge}
                     <div class="text-ellipsis" title="${ipInfo.proxy_url || ''}">${ipInfo.proxy_url || '-'}</div>
                     <div style="font-size:11px;color:#94a3b8;margin-top:2px;">${ipInfo.region || ''} ${ipInfo.vendor ? '('+ipInfo.vendor+')' : ''}</div>
                     <div style="font-size:10px;color:#94a3b8;">容量: ${ipInfo.used || 0}/${ipInfo.max_users || 2}</div>
-                ` : '<span style="color:#94a3b8;">未配置</span>'}
+                ` : `${ipModeBadge}<span style="color:#94a3b8;margin-top:4px;display:block;">未配置</span>`}
             </td>
             <td class="col-status">${statusHtml}</td>
             <td class="col-remark"><span class="text-ellipsis" style="max-width:100px;" title="${env.remark || ''}">${env.remark || '-'}</span></td>
@@ -1162,26 +1242,172 @@ async function loadAvailableIPs() {
 function renderIPOptions(selectedId = '') {
     const sel = document.getElementById('ipSelect');
     sel.innerHTML = '';
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = '请选择IP';
-    placeholder.disabled = true;
-    placeholder.selected = !selectedId;
-    sel.appendChild(placeholder);
+    const randomOpt = document.createElement('option');
+    randomOpt.value = '';
+    randomOpt.textContent = '系统随机分配（留空）';
+    randomOpt.selected = !selectedId;
+    sel.appendChild(randomOpt);
     availableIPs.forEach(ip => {
-        const disabled = ip.used >= (ip.max_users || 2);
-        if (disabled && String(ip.id) !== String(selectedId)) return;
+        const used = ip.used || 0;
+        const maxUsers = ip.max_users || 2;
+        const isFull = used >= maxUsers;
+        if (isFull && String(ip.id) !== String(selectedId)) return;
         const labelParts = [
             ip.proxy_url || '',
             ip.region || '',
             ip.vendor ? `(${ip.vendor})` : '',
-            `容量:${ip.used}/${ip.max_users || 2}`
+            `容量:${used}/${maxUsers}${isFull ? '(已满)' : ''}`
         ].filter(Boolean);
         const opt = document.createElement('option');
         opt.value = ip.id;
         opt.textContent = labelParts.join(' ');
         if (String(selectedId) === String(ip.id)) opt.selected = true;
         sel.appendChild(opt);
+    });
+}
+
+function updateIPModeUI() {
+    const mode = document.getElementById('ipModeSelect').value || 'system_random';
+    const systemGroup = document.getElementById('systemIpGroup');
+    const userGroup = document.getElementById('userIpGroup');
+    const ipSelect = document.getElementById('ipSelect');
+    const userIpSelect = document.getElementById('userIpSelect');
+
+    if (mode === 'user_pool') {
+        systemGroup.style.display = 'none';
+        userGroup.style.display = 'block';
+        ipSelect.required = false;
+        userIpSelect.required = true;
+    } else {
+        systemGroup.style.display = 'block';
+        userGroup.style.display = 'none';
+        ipSelect.required = false;
+        userIpSelect.required = false;
+    }
+}
+
+async function loadAvailableUserIPs(userId, selectedId = '') {
+    if (!userId) {
+        availableUserIPs = [];
+        renderUserIPOptions(selectedId);
+        return;
+    }
+    try {
+        const res = await apiRequest(`/config-envs/user-ip-pool/available?user_id=${userId}`);
+        availableUserIPs = (res && res.data) ? res.data : [];
+        renderUserIPOptions(selectedId);
+    } catch (err) {
+        console.error(err);
+        availableUserIPs = [];
+        renderUserIPOptions(selectedId);
+    }
+}
+
+function renderUserIPOptions(selectedId = '') {
+    const sel = document.getElementById('userIpSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '请选择自有代理';
+    placeholder.disabled = true;
+    placeholder.selected = !selectedId;
+    sel.appendChild(placeholder);
+    availableUserIPs.forEach(ip => {
+        const used = ip.used || 0;
+        const maxUsers = ip.max_users || 2;
+        const isFull = used >= maxUsers;
+        if (isFull && String(ip.id) !== String(selectedId)) return;
+        const labelParts = [
+            ip.proxy_url || '',
+            ip.region || '',
+            ip.vendor ? `(${ip.vendor})` : '',
+            `容量:${used}/${maxUsers}${isFull ? '(已满)' : ''}`
+        ].filter(Boolean);
+        const opt = document.createElement('option');
+        opt.value = ip.id;
+        opt.textContent = labelParts.join(' ');
+        if (String(selectedId) === String(ip.id)) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+
+function openAddUserIpModal() {
+    const userId = document.getElementById('formUserSelect').value;
+    if (!userId) {
+        showToast('请选择用户', 'warning');
+        return;
+    }
+
+    const modal = document.getElementById('modalOverlay');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalBody = document.getElementById('modalBody');
+    const modalFooter = document.getElementById('modalFooter');
+
+    modalTitle.textContent = '新增自有代理';
+    modalBody.innerHTML = `
+        <div class="config-form-grid" style="grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div class="form-field-group">
+                <label>IP</label>
+                <input type="text" id="userIpInputIp" placeholder="例如：223.247.128.79">
+            </div>
+            <div class="form-field-group">
+                <label>Port</label>
+                <input type="number" id="userIpInputPort" placeholder="例如：1870">
+            </div>
+            <div class="form-field-group">
+                <label>账号</label>
+                <input type="text" id="userIpInputUsername" placeholder="例如：swmf04a1">
+            </div>
+            <div class="form-field-group">
+                <label>密码</label>
+                <input type="text" id="userIpInputPassword" placeholder="例如：swmf04a1">
+            </div>
+        </div>
+        <p class="input-hint" style="margin-top: 10px;">将自动拼接：socks5://账号:密码@ip:port</p>
+    `;
+    modalFooter.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeGlobalModal()">取消</button>
+        <button class="btn btn-primary" id="confirmAddUserIp">保存</button>
+    `;
+    modal.style.display = 'flex';
+
+    document.getElementById('confirmAddUserIp').addEventListener('click', async () => {
+        const ip = (document.getElementById('userIpInputIp').value || '').trim();
+        const portStr = (document.getElementById('userIpInputPort').value || '').trim();
+        const username = (document.getElementById('userIpInputUsername').value || '').trim();
+        const password = (document.getElementById('userIpInputPassword').value || '').trim();
+
+        const port = Number.parseInt(portStr, 10);
+        if (!ip) {
+            showToast('IP 不能为空', 'warning');
+            return;
+        }
+        if (!Number.isFinite(port) || port <= 0 || port > 65535) {
+            showToast('端口无效', 'warning');
+            return;
+        }
+        if (!username || !password) {
+            showToast('账号/密码不能为空', 'warning');
+            return;
+        }
+
+        try {
+            const res = await apiRequest(`/config-envs/users/${userId}/user-ip-pool`, {
+                method: 'POST',
+                body: JSON.stringify({ ip, port, username, password })
+            });
+            const newId = res && res.id;
+            closeGlobalModal();
+            showToast('新增自有代理成功', 'success');
+            await loadAvailableUserIPs(userId, newId ? String(newId) : '');
+            if (newId) {
+                document.getElementById('userIpSelect').value = String(newId);
+            }
+        } catch (err) {
+            console.error(err);
+            showToast(err.message || '新增失败', 'error');
+        }
     });
 }
 
@@ -1204,14 +1430,19 @@ function resetForm() {
     document.getElementById('envId').value = '';
     document.getElementById('envValue').value = '';
     document.getElementById('envRemark').value = '';
+    document.getElementById('ipModeSelect').value = 'system_random';
     document.getElementById('ipSelect').value = '';
+    document.getElementById('userIpSelect').value = '';
     document.getElementById('formUserSelect').value = managedUsers.length > 0 ? managedUsers[0].id : '';
+    updateIPModeUI();
+    renderIPOptions('');
+    renderUserIPOptions('');
     computeNextEnvName().then(name => {
         document.getElementById('autoEnvName').textContent = `将生成 ${name}`;
     });
 }
 
-function editEnv(envId, configId) {
+async function editEnv(envId, configId) {
     const env = allEnvs.find(e => e.id === envId && e.config_id === configId);
     if (!env) return;
 
@@ -1220,8 +1451,19 @@ function editEnv(envId, configId) {
     document.getElementById('envValue').value = env.env_value;
     document.getElementById('envRemark').value = env.remark || '';
     document.getElementById('formUserSelect').value = env.user_id;
-    renderIPOptions(env.ip_id || '');
-    document.getElementById('ipSelect').value = env.ip_id ? String(env.ip_id) : '';
+
+    const mode = env.ip_mode || 'system_random';
+    document.getElementById('ipModeSelect').value = mode;
+    updateIPModeUI();
+
+    if (mode === 'user_pool') {
+        const selectedUserIpId = env.user_ip_id ? String(env.user_ip_id) : '';
+        await loadAvailableUserIPs(env.user_id, selectedUserIpId);
+        document.getElementById('userIpSelect').value = selectedUserIpId;
+    } else {
+        renderIPOptions(env.ip_id || '');
+        document.getElementById('ipSelect').value = env.ip_id ? String(env.ip_id) : '';
+    }
     document.getElementById('autoEnvName').textContent = env.env_name;
 
     showForm();
@@ -1233,7 +1475,9 @@ async function saveEnv(e) {
     const envId = document.getElementById('envId').value;
     const cookie = document.getElementById('envValue').value.trim();
     const remark = document.getElementById('envRemark').value.trim();
+    const ipMode = document.getElementById('ipModeSelect').value || 'system_random';
     const ipIdStr = document.getElementById('ipSelect').value;
+    const userIpIdStr = document.getElementById('userIpSelect').value;
     const targetUserId = document.getElementById('formUserSelect').value;
 
     if (!targetUserId) {
@@ -1246,16 +1490,6 @@ async function saveEnv(e) {
     }
     if (!remark) {
         showToast('备注不能为空（用于收益统计唯一标识）', 'warning');
-        return;
-    }
-    if (!ipIdStr) {
-        showToast('请选择IP', 'warning');
-        return;
-    }
-
-    const ipId = Number.parseInt(ipIdStr, 10);
-    if (!Number.isFinite(ipId)) {
-        showToast('IP 选择无效，请重新选择', 'warning');
         return;
     }
 
@@ -1278,8 +1512,30 @@ async function saveEnv(e) {
         const payload = {
             cookie,
             remark,
-            ip_id: ipId
+            ip_mode: ipMode
         };
+
+        if (ipMode === 'user_pool') {
+            if (!userIpIdStr) {
+                showToast('请选择自有代理', 'warning');
+                return;
+            }
+            const userIpId = Number.parseInt(userIpIdStr, 10);
+            if (!Number.isFinite(userIpId)) {
+                showToast('自有代理选择无效，请重新选择', 'warning');
+                return;
+            }
+            payload.user_ip_id = userIpId;
+        } else {
+            if (ipIdStr) {
+                const ipId = Number.parseInt(ipIdStr, 10);
+                if (!Number.isFinite(ipId)) {
+                    showToast('系统IP选择无效，请重新选择', 'warning');
+                    return;
+                }
+                payload.ip_id = ipId;
+            }
+        }
 
         if (envId) {
             await apiRequest(`/config-envs/configs/${currentConfigId}/envs/${envId}`, {
@@ -1413,10 +1669,28 @@ document.getElementById('cancelEdit').addEventListener('click', () => {
     hideForm();
 });
 
+document.getElementById('ipModeSelect').addEventListener('change', async () => {
+    updateIPModeUI();
+    const mode = document.getElementById('ipModeSelect').value || 'system_random';
+    if (mode === 'user_pool') {
+        const userId = document.getElementById('formUserSelect').value;
+        await loadAvailableUserIPs(userId);
+    }
+});
+document.getElementById('formUserSelect').addEventListener('change', async () => {
+    const mode = document.getElementById('ipModeSelect').value || 'system_random';
+    if (mode === 'user_pool') {
+        const userId = document.getElementById('formUserSelect').value;
+        await loadAvailableUserIPs(userId);
+    }
+});
+document.getElementById('addUserIpBtn').addEventListener('click', openAddUserIpModal);
+
 document.getElementById('userFilter').addEventListener('change', renderEnvTable);
 document.getElementById('statusFilter').addEventListener('change', renderEnvTable);
 
 // 初始化
+updateIPModeUI();
 loadAllEnvs();
 </script>
 {% endblock %}

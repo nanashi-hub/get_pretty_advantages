@@ -1,3 +1,4 @@
+import random
 from datetime import date, datetime
 from typing import List, Optional, Set
 
@@ -13,6 +14,7 @@ from app.models import (
     EnvStatus,
     ConfigStatus,
     IPPool,
+    UserIPPool,
     QLInstance,
     User,
     UserReferral,
@@ -35,12 +37,18 @@ DEFAULT_QL_CLIENT_ID = "N16sNCmXwY_S"
 DEFAULT_QL_CLIENT_SECRET = "rr_tBarvo4lwvDnbzKyJhq2j"
 DEFAULT_QL_REMARK = "自动创建的默认青龙实例（来自配置环境模块）"
 
+IP_MODE_SYSTEM_RANDOM = "system_random"
+IP_MODE_USER_POOL = "user_pool"
+VALID_IP_MODES = {IP_MODE_SYSTEM_RANDOM, IP_MODE_USER_POOL}
+
 
 class KSCKEnvPayload(BaseModel):
     """新增/修改 ksck 变量的载荷"""
     cookie: Optional[str] = Field(None, description="ksck 值（必填）")
     remark: Optional[str] = Field(None, description="备注")
+    ip_mode: Optional[str] = Field(None, description="IP模式：system_random/user_pool")
     ip_id: Optional[int] = Field(None, description="IP池ID")
+    user_ip_id: Optional[int] = Field(None, description="用户自有代理池ID")
     status: Optional[str] = Field(None, description="valid/invalid")
 
 
@@ -90,12 +98,24 @@ def build_proxy_url(ip: Optional[IPPool]) -> str:
     return f"{auth}{ip.ip}:{ip.port}"
 
 
-def build_ql_value(env: UserScriptEnv, ip: Optional[IPPool]) -> str:
+def build_user_proxy_url(ip: Optional[UserIPPool]) -> str:
+    """构造用户自有代理URL（强制 socks5://）"""
+    if not ip:
+        return ""
+    if ip.proxy_url:
+        return ip.proxy_url
+    username = (ip.username or "").strip()
+    password = (ip.password or "").strip()
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="自有代理缺少账号或密码，无法拼接 proxy_url")
+    return f"socks5://{username}:{password}@{ip.ip}:{ip.port}"
+
+
+def build_ql_value(env: UserScriptEnv, proxy_url: str) -> str:
     """按 备注#cookie#proxy_url 组合青龙变量值"""
     remark = env.remark or ""
     cookie = env.env_value or ""
-    proxy_url = build_proxy_url(ip)
-    return f"{remark}#{cookie}#{proxy_url}"
+    return f"{remark}#{cookie}#{proxy_url or ''}"
 
 
 def recalc_ip_usage(db: Session, ip_ids: Optional[Set[int]] = None) -> None:
@@ -117,6 +137,34 @@ def recalc_ip_usage(db: Session, ip_ids: Optional[Set[int]] = None) -> None:
             {"usage_count": usage_map.get(ip_id, 0)}
         )
     db.flush()
+
+
+def recalc_user_ip_usage(db: Session, user_ip_ids: Optional[Set[int]] = None) -> None:
+    """刷新用户自有 IP 使用次数到 user_ip_pool.usage_count（不使用触发器）"""
+    usage_query = db.query(UserScriptEnv.user_ip_id, func.count(UserScriptEnv.id)).filter(
+        UserScriptEnv.user_ip_id.isnot(None)
+    )
+    if user_ip_ids:
+        usage_query = usage_query.filter(UserScriptEnv.user_ip_id.in_(user_ip_ids))
+    usage_rows = usage_query.group_by(UserScriptEnv.user_ip_id).all()
+    usage_map = {ip_id: count for ip_id, count in usage_rows}
+
+    targets = user_ip_ids or set(usage_map.keys())
+    if not targets:
+        return
+    for ip_id in targets:
+        db.query(UserIPPool).filter(UserIPPool.id == ip_id).update(
+            {"usage_count": usage_map.get(ip_id, 0)}
+        )
+    db.flush()
+
+
+def normalize_ip_mode_or_default(ip_mode: Optional[str]) -> str:
+    """规范化 IP 模式（缺省为 system_random）"""
+    mode = (ip_mode or IP_MODE_SYSTEM_RANDOM).strip()
+    if mode not in VALID_IP_MODES:
+        raise HTTPException(status_code=400, detail="IP 模式无效，仅支持 system_random/user_pool")
+    return mode
 
 
 def can_manage_user(current_user: User, target_user_id: int, db: Session) -> bool:
@@ -261,6 +309,69 @@ def get_ip_with_usage(
     return ip
 
 
+def pick_random_system_ip(db: Session, exclude_env_id: Optional[int] = None) -> IPPool:
+    """从系统 IP 池中随机挑选一个可用 IP（容量/过期/状态校验）"""
+    ips = (
+        db.query(IPPool)
+        .filter(
+            IPPool.status == "active",
+            (IPPool.expire_date.is_(None)) | (IPPool.expire_date >= date.today()),
+        )
+        .all()
+    )
+    if not ips:
+        raise HTTPException(status_code=400, detail="系统 IP 池为空或无可用 IP")
+
+    ip_ids = [ip.id for ip in ips]
+    usage_query = db.query(UserScriptEnv.ip_id, func.count(UserScriptEnv.id)).filter(
+        UserScriptEnv.ip_id.in_(ip_ids)
+    )
+    if exclude_env_id:
+        usage_query = usage_query.filter(UserScriptEnv.id != exclude_env_id)
+    usage_rows = usage_query.group_by(UserScriptEnv.ip_id).all()
+    usage_map = {ip_id: count for ip_id, count in usage_rows}
+
+    candidates = [
+        ip
+        for ip in ips
+        if (usage_map.get(ip.id, 0) < (ip.max_users or 2))
+    ]
+    if not candidates:
+        raise HTTPException(status_code=400, detail="系统 IP 池暂无可用 IP（容量已满）")
+    return random.choice(candidates)
+
+
+def get_user_ip_with_usage(
+    db: Session,
+    user_id: int,
+    user_ip_id: int,
+    exclude_env_id: Optional[int] = None,
+) -> UserIPPool:
+    """校验用户自有 IP 可用性并返回（归属/过期/容量）"""
+    ip = (
+        db.query(UserIPPool)
+        .filter(
+            UserIPPool.id == user_ip_id,
+            UserIPPool.user_id == user_id,
+            UserIPPool.status == "active",
+        )
+        .first()
+    )
+    if not ip:
+        raise HTTPException(status_code=404, detail="自有代理不存在或已禁用")
+    if ip.expire_date and ip.expire_date < date.today():
+        raise HTTPException(status_code=400, detail="自有代理已过期")
+
+    usage_query = db.query(func.count(UserScriptEnv.id)).filter(
+        UserScriptEnv.user_ip_id == user_ip_id
+    )
+    if exclude_env_id:
+        usage_query = usage_query.filter(UserScriptEnv.id != exclude_env_id)
+    used = usage_query.scalar() or 0
+    if used >= (ip.max_users or 2):
+        raise HTTPException(status_code=400, detail="该自有代理使用已达上限")
+    return ip
+
 def normalize_remark_or_400(remark: Optional[str]) -> str:
     """备注去空格并强制必填"""
     normalized = (remark or "").strip()
@@ -297,7 +408,7 @@ def get_config_or_404(config_id: int, db: Session) -> UserScriptConfig:
 def get_env_or_404(env_id: int, config_id: int, db: Session) -> UserScriptEnv:
     env = (
         db.query(UserScriptEnv)
-        .options(joinedload(UserScriptEnv.ip))  # 预加载 IP 关联
+        .options(joinedload(UserScriptEnv.ip), joinedload(UserScriptEnv.user_ip))  # 预加载 IP 关联
         .filter(
             UserScriptEnv.id == env_id,
             UserScriptEnv.config_id == config_id,
@@ -334,10 +445,10 @@ def sync_env_to_ql(
     env: UserScriptEnv,
     config_id: int,
     enable: Optional[bool],
-    ip: Optional[IPPool] = None,
+    proxy_url: str = "",
 ) -> str:
     """同步本地环境变量到青龙并返回青龙ID"""
-    ql_value = build_ql_value(env, ip or env.ip)
+    ql_value = build_ql_value(env, proxy_url)
     remarks = (env.remark or f"配置ID:{config_id}")[:200]
     result = client.sync_env(
         name=env.env_name,
@@ -407,7 +518,7 @@ async def ensure_default_config(
 async def list_available_ips(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
-    """获取剩余容量的IP池列表"""
+    """获取IP池列表（包含容量信息）"""
     recalc_ip_usage(db)
 
     ips = (
@@ -423,19 +534,121 @@ async def list_available_ips(
     available = []
     for ip in ips:
         used = ip.usage_count or 0
-        if used < (ip.max_users or 2):
-            available.append(
-                {
-                    "id": ip.id,
-                    "proxy_url": build_proxy_url(ip),
-                    "region": ip.region,
-                    "vendor": ip.vendor,
-                    "max_users": ip.max_users or 2,
-                    "used": used,
-                    "usage_count": used,
-                }
-            )
+        available.append(
+            {
+                "id": ip.id,
+                "proxy_url": build_proxy_url(ip),
+                "region": ip.region,
+                "vendor": ip.vendor,
+                "max_users": ip.max_users or 2,
+                "used": used,
+                "usage_count": used,
+            }
+        )
     return {"data": available}
+
+
+class UserIPPoolCreatePayload(BaseModel):
+    """新增用户自有代理"""
+    ip: str = Field(..., description="IP")
+    port: int = Field(..., ge=1, le=65535, description="端口")
+    username: str = Field(..., description="代理账号")
+    password: str = Field(..., description="代理密码")
+    region: Optional[str] = Field(None, description="地区/城市")
+    vendor: Optional[str] = Field(None, description="供应商")
+    expire_date: Optional[date] = Field(None, description="到期时间")
+    max_users: Optional[int] = Field(None, ge=1, le=20, description="最多同时使用人数（默认2）")
+
+
+@router.get("/user-ip-pool/available")
+async def list_available_user_ips(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取某用户自有代理列表（包含容量信息）"""
+    if not can_manage_user(current_user, user_id, db):
+        raise HTTPException(status_code=403, detail="无权管理此用户")
+
+    recalc_user_ip_usage(db)
+    ips = (
+        db.query(UserIPPool)
+        .filter(
+            UserIPPool.user_id == user_id,
+            UserIPPool.status == "active",
+            (UserIPPool.expire_date.is_(None)) | (UserIPPool.expire_date >= date.today()),
+        )
+        .order_by(UserIPPool.id.desc())
+        .all()
+    )
+
+    available = []
+    for ip in ips:
+        used = ip.usage_count or 0
+        available.append(
+            {
+                "id": ip.id,
+                "proxy_url": build_user_proxy_url(ip),
+                "region": ip.region,
+                "vendor": ip.vendor,
+                "max_users": ip.max_users or 2,
+                "used": used,
+                "usage_count": used,
+            }
+        )
+    return {"data": available}
+
+
+@router.post("/users/{user_id}/user-ip-pool", status_code=status.HTTP_201_CREATED)
+async def create_user_ip_pool(
+    user_id: int,
+    data: UserIPPoolCreatePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """为某用户新增自有代理（自动拼接 socks5://username:password@ip:port）"""
+    if not can_manage_user(current_user, user_id, db):
+        raise HTTPException(status_code=403, detail="无权管理此用户")
+
+    ip = (data.ip or "").strip()
+    username = (data.username or "").strip()
+    password = (data.password or "").strip()
+    if not ip:
+        raise HTTPException(status_code=400, detail="IP 不能为空")
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="代理账号/密码不能为空")
+
+    proxy_url = f"socks5://{username}:{password}@{ip}:{data.port}"
+    record = UserIPPool(
+        user_id=user_id,
+        ip=ip,
+        port=data.port,
+        username=username,
+        password=password,
+        proxy_url=proxy_url,
+        region=(data.region or "").strip() or None,
+        vendor=(data.vendor or "").strip() or None,
+        expire_date=data.expire_date,
+        max_users=data.max_users or 2,
+        status="active",
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    recalc_user_ip_usage(db, {record.id})
+
+    used = record.usage_count or 0
+    return {
+        "id": record.id,
+        "proxy_url": build_user_proxy_url(record),
+        "region": record.region,
+        "vendor": record.vendor,
+        "max_users": record.max_users or 2,
+        "used": used,
+        "usage_count": used,
+        "created_at": record.created_at,
+        "updated_at": record.updated_at,
+    }
 
 
 @router.get(
@@ -451,20 +664,48 @@ async def list_envs(
     assert_config_permission(current_user, config, db)
     envs = db.query(UserScriptEnv).filter(UserScriptEnv.config_id == config_id).all()
 
-    ip_ids = [env.ip_id for env in envs if env.ip_id]
-    ip_map = {}
-    if ip_ids:
-        ip_map = {
+    system_ip_ids = {env.ip_id for env in envs if env.ip_id}
+    user_ip_ids = {env.user_ip_id for env in envs if env.user_ip_id}
+
+    system_ip_map = {}
+    user_ip_map = {}
+
+    if system_ip_ids:
+        system_ip_map = {
             ip.id: ip
-            for ip in db.query(IPPool).filter(IPPool.id.in_(set(ip_ids))).all()
+            for ip in db.query(IPPool).filter(IPPool.id.in_(system_ip_ids)).all()
         }
-        recalc_ip_usage(db, set(ip_ids))
+        recalc_ip_usage(db, system_ip_ids)
+
+    if user_ip_ids:
+        user_ip_map = {
+            ip.id: ip
+            for ip in db.query(UserIPPool).filter(UserIPPool.id.in_(user_ip_ids)).all()
+        }
+        recalc_user_ip_usage(db, user_ip_ids)
 
     result = []
     for env in envs:
-        ip = ip_map.get(env.ip_id) if env.ip_id else None
+        mode = (env.ip_mode or IP_MODE_SYSTEM_RANDOM).strip()
+        if mode not in VALID_IP_MODES:
+            mode = IP_MODE_SYSTEM_RANDOM
+
+        ip = system_ip_map.get(env.ip_id) if env.ip_id else None
+        user_ip = user_ip_map.get(env.user_ip_id) if env.user_ip_id else None
+
         ip_info = None
-        if ip:
+        user_ip_info = None
+
+        if mode == IP_MODE_USER_POOL and user_ip:
+            user_ip_info = {
+                "id": user_ip.id,
+                "proxy_url": build_user_proxy_url(user_ip),
+                "region": user_ip.region,
+                "vendor": user_ip.vendor,
+                "max_users": user_ip.max_users or 2,
+                "used": user_ip.usage_count or 0,
+            }
+        elif ip:
             ip_info = {
                 "id": ip.id,
                 "proxy_url": build_proxy_url(ip),
@@ -480,8 +721,11 @@ async def list_envs(
                 "env_name": env.env_name,
                 "env_value": env.env_value,
                 "ql_env_id": env.ql_env_id,
+                "ip_mode": mode,
                 "ip_id": env.ip_id,
                 "ip_info": ip_info,
+                "user_ip_id": env.user_ip_id,
+                "user_ip_info": user_ip_info,
                 "status": env.status,
                 "remark": env.remark,
                 "disabled_until": env.disabled_until.isoformat() if env.disabled_until else None,
@@ -513,25 +757,59 @@ async def create_env(
         raise HTTPException(status_code=403, detail="普通用户无法新增环境变量")
     cookie = normalize_cookie_or_400(data.cookie)
     remark = normalize_remark_or_400(data.remark)
-    if data.ip_id is None:
-        raise HTTPException(status_code=400, detail="请选择IP")
     assert_unique_remark(db, remark)
 
-    ip_obj = get_ip_with_usage(db, data.ip_id)
+    ip_mode = normalize_ip_mode_or_default(data.ip_mode)
+    env_status = data.status or EnvStatus.VALID.value
+    if env_status not in (EnvStatus.VALID.value, EnvStatus.INVALID.value):
+        raise HTTPException(status_code=400, detail="状态仅支持 valid/invalid")
 
-    env = UserScriptEnv(
-        config_id=config_id,
-        user_id=config.user_id,
-        env_name=generate_env_name(db, config_id),
-        env_value=cookie,
-        ip_id=data.ip_id,
-        status=data.status or EnvStatus.VALID.value,
-        remark=remark,
-    )
+    system_ip_obj: Optional[IPPool] = None
+    user_ip_obj: Optional[UserIPPool] = None
+    proxy_url = ""
+
+    if ip_mode == IP_MODE_USER_POOL:
+        if data.user_ip_id is None:
+            raise HTTPException(status_code=400, detail="请选择自有代理")
+        user_ip_obj = get_user_ip_with_usage(db, config.user_id, data.user_ip_id)
+        proxy_url = build_user_proxy_url(user_ip_obj)
+        env = UserScriptEnv(
+            config_id=config_id,
+            user_id=config.user_id,
+            env_name=generate_env_name(db, config_id),
+            env_value=cookie,
+            ip_mode=ip_mode,
+            ip_id=None,
+            user_ip_id=user_ip_obj.id,
+            status=env_status,
+            remark=remark,
+        )
+    else:
+        if data.ip_id is not None:
+            system_ip_obj = get_ip_with_usage(db, data.ip_id)
+        else:
+            system_ip_obj = pick_random_system_ip(db)
+        proxy_url = build_proxy_url(system_ip_obj)
+        env = UserScriptEnv(
+            config_id=config_id,
+            user_id=config.user_id,
+            env_name=generate_env_name(db, config_id),
+            env_value=cookie,
+            ip_mode=ip_mode,
+            ip_id=system_ip_obj.id,
+            user_ip_id=None,
+            status=env_status,
+            remark=remark,
+        )
+
     db.add(env)
     db.commit()
     db.refresh(env)
-    recalc_ip_usage(db, {data.ip_id})
+
+    if system_ip_obj:
+        recalc_ip_usage(db, {system_ip_obj.id})
+    if user_ip_obj:
+        recalc_user_ip_usage(db, {user_ip_obj.id})
 
     # 尝试同步到青龙
     try:
@@ -541,7 +819,7 @@ async def create_env(
             env,
             config_id,
             enable=env.status == EnvStatus.VALID.value,
-            ip=ip_obj,
+            proxy_url=proxy_url,
         )
         env.ql_env_id = ql_id
         config.last_sync_at = datetime.now()
@@ -551,7 +829,41 @@ async def create_env(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"保存成功但同步青龙失败: {exc}")
 
-    used_count = ip_obj.usage_count if ip_obj else 0
+    ip_info = None
+    user_ip_info = None
+    if system_ip_obj:
+        used_count = (
+            db.query(func.count(UserScriptEnv.id))
+            .filter(UserScriptEnv.ip_id == system_ip_obj.id)
+            .scalar()
+            or 0
+        )
+        ip_info = {
+            "id": system_ip_obj.id,
+            "proxy_url": build_proxy_url(system_ip_obj),
+            "region": system_ip_obj.region,
+            "vendor": system_ip_obj.vendor,
+            "max_users": system_ip_obj.max_users or 2,
+            "used": used_count,
+            "usage_count": used_count,
+        }
+
+    if user_ip_obj:
+        used_count = (
+            db.query(func.count(UserScriptEnv.id))
+            .filter(UserScriptEnv.user_ip_id == user_ip_obj.id)
+            .scalar()
+            or 0
+        )
+        user_ip_info = {
+            "id": user_ip_obj.id,
+            "proxy_url": build_user_proxy_url(user_ip_obj),
+            "region": user_ip_obj.region,
+            "vendor": user_ip_obj.vendor,
+            "max_users": user_ip_obj.max_users or 2,
+            "used": used_count,
+            "usage_count": used_count,
+        }
 
     return {
         "id": env.id,
@@ -559,18 +871,11 @@ async def create_env(
         "env_name": env.env_name,
         "env_value": env.env_value,
         "ql_env_id": env.ql_env_id,
+        "ip_mode": ip_mode,
         "ip_id": env.ip_id,
-        "ip_info": {
-            "id": ip_obj.id,
-            "proxy_url": build_proxy_url(ip_obj),
-            "region": ip_obj.region,
-            "vendor": ip_obj.vendor,
-            "max_users": ip_obj.max_users or 2,
-            "used": used_count,
-            "usage_count": used_count,
-        }
-        if ip_obj
-        else None,
+        "ip_info": ip_info,
+        "user_ip_id": env.user_ip_id,
+        "user_ip_info": user_ip_info,
         "status": env.status,
         "remark": env.remark,
         "disabled_until": env.disabled_until.isoformat() if env.disabled_until else None,
@@ -596,11 +901,12 @@ async def update_env(
     assert_config_permission(current_user, config, db)
     env = get_env_or_404(env_id, config_id, db)
 
-    cookie = normalize_cookie_or_400(data.cookie if data.cookie is not None else env.env_value)
-    remark = normalize_remark_or_400(data.remark if data.remark is not None else env.remark)
-    ip_id = data.ip_id if data.ip_id is not None else env.ip_id
-    if ip_id is None:
-        raise HTTPException(status_code=400, detail="请选择IP")
+    cookie = normalize_cookie_or_400(
+        data.cookie if data.cookie is not None else env.env_value
+    )
+    remark = normalize_remark_or_400(
+        data.remark if data.remark is not None else env.remark
+    )
     assert_unique_remark(db, remark, exclude_env_id=env.id)
 
     old_remark = (env.remark or "").strip()
@@ -615,9 +921,44 @@ async def update_env(
         if data.status not in (EnvStatus.VALID.value, EnvStatus.INVALID.value):
             raise HTTPException(status_code=400, detail="状态仅支持 valid/invalid")
         env.status = data.status
+
     old_ip_id = env.ip_id
-    ip_obj = get_ip_with_usage(db, ip_id, exclude_env_id=env.id)
-    env.ip_id = ip_id
+    old_user_ip_id = env.user_ip_id
+    old_mode = (env.ip_mode or IP_MODE_SYSTEM_RANDOM).strip()
+    if old_mode not in VALID_IP_MODES:
+        old_mode = IP_MODE_SYSTEM_RANDOM
+
+    ip_mode = normalize_ip_mode_or_default(data.ip_mode if data.ip_mode is not None else old_mode)
+
+    system_ip_obj: Optional[IPPool] = None
+    user_ip_obj: Optional[UserIPPool] = None
+    proxy_url = ""
+
+    if ip_mode == IP_MODE_USER_POOL:
+        user_ip_id = data.user_ip_id if data.user_ip_id is not None else env.user_ip_id
+        if user_ip_id is None:
+            raise HTTPException(status_code=400, detail="请选择自有代理")
+        user_ip_obj = get_user_ip_with_usage(
+            db,
+            user_id=config.user_id,
+            user_ip_id=user_ip_id,
+            exclude_env_id=env.id,
+        )
+        proxy_url = build_user_proxy_url(user_ip_obj)
+        env.ip_mode = ip_mode
+        env.ip_id = None
+        env.user_ip_id = user_ip_id
+    else:
+        desired_ip_id = data.ip_id if data.ip_id is not None else env.ip_id
+        if desired_ip_id is not None:
+            system_ip_obj = get_ip_with_usage(db, desired_ip_id, exclude_env_id=env.id)
+        else:
+            system_ip_obj = pick_random_system_ip(db, exclude_env_id=env.id)
+            desired_ip_id = system_ip_obj.id
+        proxy_url = build_proxy_url(system_ip_obj)
+        env.ip_mode = ip_mode
+        env.ip_id = desired_ip_id
+        env.user_ip_id = None
 
     # 同步到青龙（无论是否已有 ql_env_id）
     try:
@@ -628,7 +969,7 @@ async def update_env(
             env,
             config_id,
             enable=env.status == EnvStatus.VALID.value,
-            ip=ip_obj,
+            proxy_url=proxy_url,
         )
         if old_ql_env_id and str(old_ql_env_id) != str(ql_id):
             logger.warning(
@@ -651,25 +992,68 @@ async def update_env(
             detail=f"同步青龙失败: {exc}"
         )
 
-    ip_ids_to_recalc: Set[int] = set()
+    system_ids_to_recalc: Set[int] = set()
     if old_ip_id:
-        ip_ids_to_recalc.add(old_ip_id)
+        system_ids_to_recalc.add(old_ip_id)
     if env.ip_id:
-        ip_ids_to_recalc.add(env.ip_id)
-    if ip_ids_to_recalc:
-        recalc_ip_usage(db, ip_ids_to_recalc)
+        system_ids_to_recalc.add(env.ip_id)
+    if system_ids_to_recalc:
+        recalc_ip_usage(db, system_ids_to_recalc)
 
-    # 获取当前 IP 使用情况
-    used_count = 0
-    current_ip_obj = None
-    if env.ip_id:
-        current_ip_obj = (
-            db.query(IPPool)
-            .filter(IPPool.id == env.ip_id)
-            .first()
-        )
-        if current_ip_obj:
-            used_count = current_ip_obj.usage_count or 0
+    user_ids_to_recalc: Set[int] = set()
+    if old_user_ip_id:
+        user_ids_to_recalc.add(old_user_ip_id)
+    if env.user_ip_id:
+        user_ids_to_recalc.add(env.user_ip_id)
+    if user_ids_to_recalc:
+        recalc_user_ip_usage(db, user_ids_to_recalc)
+
+    ip_info = None
+    user_ip_info = None
+    current_ip_mode = (env.ip_mode or IP_MODE_SYSTEM_RANDOM).strip()
+    if current_ip_mode not in VALID_IP_MODES:
+        current_ip_mode = IP_MODE_SYSTEM_RANDOM
+
+    if current_ip_mode == IP_MODE_USER_POOL and env.user_ip_id:
+        current_user_ip = user_ip_obj
+        if not current_user_ip or current_user_ip.id != env.user_ip_id:
+            current_user_ip = (
+                db.query(UserIPPool).filter(UserIPPool.id == env.user_ip_id).first()
+            )
+        if current_user_ip:
+            used_count = (
+                db.query(func.count(UserScriptEnv.id))
+                .filter(UserScriptEnv.user_ip_id == current_user_ip.id)
+                .scalar()
+                or 0
+            )
+            user_ip_info = {
+                "id": current_user_ip.id,
+                "proxy_url": build_user_proxy_url(current_user_ip),
+                "region": current_user_ip.region,
+                "vendor": current_user_ip.vendor,
+                "max_users": current_user_ip.max_users or 2,
+                "used": used_count,
+            }
+    elif env.ip_id:
+        current_ip = system_ip_obj
+        if not current_ip or current_ip.id != env.ip_id:
+            current_ip = db.query(IPPool).filter(IPPool.id == env.ip_id).first()
+        if current_ip:
+            used_count = (
+                db.query(func.count(UserScriptEnv.id))
+                .filter(UserScriptEnv.ip_id == current_ip.id)
+                .scalar()
+                or 0
+            )
+            ip_info = {
+                "id": current_ip.id,
+                "proxy_url": build_proxy_url(current_ip),
+                "region": current_ip.region,
+                "vendor": current_ip.vendor,
+                "max_users": current_ip.max_users or 2,
+                "used": used_count,
+            }
 
     return {
         "id": env.id,
@@ -677,17 +1061,11 @@ async def update_env(
         "env_name": env.env_name,
         "env_value": env.env_value,
         "ql_env_id": env.ql_env_id,
+        "ip_mode": current_ip_mode,
         "ip_id": env.ip_id,
-        "ip_info": {
-            "id": current_ip_obj.id,
-            "proxy_url": build_proxy_url(current_ip_obj),
-            "region": current_ip_obj.region,
-            "vendor": current_ip_obj.vendor,
-            "max_users": current_ip_obj.max_users or 2,
-            "used": used_count,
-        }
-        if current_ip_obj
-        else None,
+        "ip_info": ip_info,
+        "user_ip_id": env.user_ip_id,
+        "user_ip_info": user_ip_info,
         "status": env.status,
         "remark": env.remark,
         "disabled_until": env.disabled_until.isoformat() if env.disabled_until else None,
@@ -720,10 +1098,15 @@ async def delete_env(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"删除青龙变量失败: {exc}")
 
+    system_ip_ids = {env.ip_id} if env.ip_id else set()
+    user_ip_ids = {env.user_ip_id} if env.user_ip_id else set()
+
     db.delete(env)
     db.commit()
-    if env.ip_id:
-        recalc_ip_usage(db, {env.ip_id})
+    if system_ip_ids:
+        recalc_ip_usage(db, system_ip_ids)
+    if user_ip_ids:
+        recalc_user_ip_usage(db, user_ip_ids)
     return {"message": "删除成功"}
 
 
@@ -739,10 +1122,33 @@ async def enable_env(
     assert_config_permission(current_user, config, db)
     env = get_env_or_404(env_id, config_id, db)
     client = get_ql_client_for_config(config, db)
-    ip_obj = get_ip_with_usage(db, env.ip_id, exclude_env_id=env.id) if env.ip_id else None
+    mode = (env.ip_mode or IP_MODE_SYSTEM_RANDOM).strip()
+    if mode not in VALID_IP_MODES:
+        mode = IP_MODE_SYSTEM_RANDOM
+
+    proxy_url = ""
+    if mode == IP_MODE_USER_POOL:
+        if not env.user_ip_id:
+            raise HTTPException(status_code=400, detail="该环境未配置自有代理")
+        user_ip_obj = get_user_ip_with_usage(
+            db,
+            user_id=config.user_id,
+            user_ip_id=env.user_ip_id,
+            exclude_env_id=env.id,
+        )
+        proxy_url = build_user_proxy_url(user_ip_obj)
+    else:
+        if env.ip_id:
+            ip_obj = get_ip_with_usage(db, env.ip_id, exclude_env_id=env.id)
+        else:
+            ip_obj = pick_random_system_ip(db, exclude_env_id=env.id)
+            env.ip_mode = IP_MODE_SYSTEM_RANDOM
+            env.ip_id = ip_obj.id
+            env.user_ip_id = None
+        proxy_url = build_proxy_url(ip_obj)
 
     try:
-        env.ql_env_id = sync_env_to_ql(client, env, config_id, enable=True, ip=ip_obj)
+        env.ql_env_id = sync_env_to_ql(client, env, config_id, enable=True, proxy_url=proxy_url)
 
         if not env.ql_env_id:
             raise HTTPException(status_code=500, detail="同步青龙失败，缺少ID")
@@ -750,6 +1156,10 @@ async def enable_env(
         env.status = EnvStatus.VALID.value
         config.last_sync_at = datetime.now()
         db.commit()
+        if env.ip_id:
+            recalc_ip_usage(db, {env.ip_id})
+        if env.user_ip_id:
+            recalc_user_ip_usage(db, {env.user_ip_id})
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"启用失败: {exc}")
@@ -773,7 +1183,13 @@ async def disable_env(
 
     client = get_ql_client_for_config(config, db)
     try:
-        env.ql_env_id = sync_env_to_ql(client, env, config_id, enable=False)
+        mode = (env.ip_mode or IP_MODE_SYSTEM_RANDOM).strip()
+        if mode not in VALID_IP_MODES:
+            mode = IP_MODE_SYSTEM_RANDOM
+        proxy_url = (
+            build_user_proxy_url(env.user_ip) if mode == IP_MODE_USER_POOL else build_proxy_url(env.ip)
+        )
+        env.ql_env_id = sync_env_to_ql(client, env, config_id, enable=False, proxy_url=proxy_url)
         env.status = EnvStatus.INVALID.value
         config.last_sync_at = datetime.now()
         db.commit()

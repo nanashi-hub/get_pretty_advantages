@@ -2,11 +2,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy import text
 from starlette.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from app.database import init_db
+from app.database import engine, init_db
 from app.logging_config import setup_logging_from_env, get_logger
 from app.routes import auth, users, admin, account
 from app.routes import (
@@ -20,6 +21,7 @@ from app.routes import (
     stats,
     config_envs,
     recharge,
+    system_settings,
 )
 import traceback
 
@@ -30,6 +32,27 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
 DATA_DIR = BASE_DIR / "data"
+
+
+def get_service_mode() -> str:
+    """获取当前服务模式（commercial/public），默认 commercial。"""
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT setting_value
+                    FROM system_settings
+                    WHERE setting_key = 'service_mode'
+                    LIMIT 1
+                    """
+                )
+            ).fetchone()
+            if row and row[0] == "public":
+                return "public"
+    except Exception:
+        return "commercial"
+    return "commercial"
 
 
 @asynccontextmanager
@@ -144,6 +167,7 @@ app.include_router(withdrawals.router)
 app.include_router(referrals.router)
 app.include_router(stats.router)
 app.include_router(config_envs.router)
+app.include_router(system_settings.router)
 
 # 充值分账模块路由
 from app.routes import alipay_config
@@ -201,6 +225,8 @@ async def earnings_page(request: Request):
 @app.get("/settlement-center", response_class=HTMLResponse)
 async def settlement_center_page(request: Request):
     """结算中心页面"""
+    if get_service_mode() != "commercial":
+        return RedirectResponse(url="/dashboard", status_code=302)
     return templates.TemplateResponse(
         "settlement_center.html",
         {"request": request, "active_page": "settlement_center"},
@@ -210,6 +236,8 @@ async def settlement_center_page(request: Request):
 @app.get("/wallet", response_class=HTMLResponse)
 async def wallet_page(request: Request):
     """我的钱包页面"""
+    if get_service_mode() != "commercial":
+        return RedirectResponse(url="/dashboard", status_code=302)
     return templates.TemplateResponse("wallet.html", {"request": request, "active_page": "wallet"})
 
 
@@ -450,6 +478,15 @@ async def admin_ban_reports_page(request: Request):
     return templates.TemplateResponse(
         "admin_ban_reports.html",
         {"request": request, "active_page": "ban_reports"},
+    )
+
+
+@app.get("/admin/service-mode", response_class=HTMLResponse)
+async def admin_service_mode_page(request: Request):
+    """服务模式切换（管理员）"""
+    return templates.TemplateResponse(
+        "admin_service_mode.html",
+        {"request": request, "active_page": "service_mode"},
     )
 
 
