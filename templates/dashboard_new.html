@@ -78,7 +78,7 @@
             </table>
         </div>
         <div class="account-health-hint" id="accountHealthHint">
-            判定口径：需更换配置=统计日 0；黑号=0&lt;统计日&lt;500；边缘=500≤统计日&lt;10000。
+            判定口径：未统计=统计日无数据；需更换配置=统计日 0；黑号=0&lt;统计日&lt;500；边缘=500≤统计日&lt;10000。
         </div>
     </div>
 </div>
@@ -365,6 +365,11 @@
 .health-pill strong {
     font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
 }
+.health-pill.nodata {
+    background: rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.22);
+    color: #334155;
+}
 .health-pill.need {
     background: rgba(239, 68, 68, 0.08);
     border-color: rgba(239, 68, 68, 0.18);
@@ -393,6 +398,10 @@
     font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
+}
+.health-badge.nodata {
+    background: rgba(148, 163, 184, 0.18);
+    color: #334155;
 }
 .health-badge.need {
     background: rgba(239, 68, 68, 0.12);
@@ -538,6 +547,7 @@ function escapeHtml(text) {
 
 function renderHealthBadge(category, label) {
     const clsMap = {
+        no_data: 'nodata',
         need_config: 'need',
         black: 'black',
         edge: 'edge',
@@ -549,6 +559,7 @@ function renderHealthBadge(category, label) {
 
 function renderHealthPill(category, label, count) {
     const clsMap = {
+        no_data: 'nodata',
         need_config: 'need',
         black: 'black',
         edge: 'edge',
@@ -579,11 +590,12 @@ async function loadAccountHealth() {
         if (title) title.textContent = `账号状态提醒（${basisLabel}）`;
         if (coinsTh) coinsTh.textContent = `${basisLabel}金币`;
         if (hint) {
-            hint.textContent = `判定口径：需更换配置=${basisLabel} 0；黑号=0<${basisLabel}<500；边缘=500≤${basisLabel}<10000。`;
+            hint.textContent = `判定口径：未统计=${basisLabel}无数据；需更换配置=${basisLabel} 0；黑号=0<${basisLabel}<500；边缘=500≤${basisLabel}<10000。`;
         }
 
         meta.textContent = `统计日期：${statDate}（${basisLabel}） · 账号总数：${total}`;
         summary.innerHTML = [
+            renderHealthPill('no_data', '未统计', counts.no_data),
             renderHealthPill('need_config', '需更换配置', counts.need_config),
             renderHealthPill('black', '黑号', counts.black),
             renderHealthPill('edge', '边缘', counts.edge),
@@ -594,7 +606,7 @@ async function loadAccountHealth() {
         const issues = items.filter(i => i && i.category !== 'normal');
 
         if (issues.length === 0) {
-            body.innerHTML = '<tr><td colspan="5" class="empty-cell">暂无需要处理的账号（昨日）</td></tr>';
+            body.innerHTML = `<tr><td colspan="5" class="empty-cell">暂无需要处理的账号（${escapeHtml(basisLabel)}）</td></tr>`;
             return;
         }
 
@@ -604,7 +616,7 @@ async function loadAccountHealth() {
             const relationLabel = i.relation_label || '';
             const scopeText = `${relationLabel}${relationLabel ? ' · ' : ''}${ownerName}`;
             const coins = Number(i.stat_coins || 0);
-            const coinsText = coins.toLocaleString('zh-CN');
+            const coinsText = i.category === 'no_data' ? '-' : coins.toLocaleString('zh-CN');
             const statusHtml = renderHealthBadge(i.category, i.category_label);
             const configHref = i.owner_user_id ? `/config-envs?user_id=${encodeURIComponent(String(i.owner_user_id))}` : '/config-envs';
             return `
@@ -621,7 +633,7 @@ async function loadAccountHealth() {
         if (title) title.textContent = '账号状态提醒';
         if (coinsTh) coinsTh.textContent = '统计金币';
         if (hint) {
-            hint.textContent = '判定口径：需更换配置=统计日 0；黑号=0<统计日<500；边缘=500≤统计日<10000。';
+            hint.textContent = '判定口径：未统计=统计日无数据；需更换配置=统计日 0；黑号=0<统计日<500；边缘=500≤统计日<10000。';
         }
         meta.textContent = '加载失败';
         body.innerHTML = `<tr><td colspan="5" class="error-cell">加载失败：${escapeHtml(error && error.message ? error.message : '未知错误')}</td></tr>`;

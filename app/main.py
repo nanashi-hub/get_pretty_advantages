@@ -430,6 +430,12 @@ async def admin_ql_instances_page(request: Request):
     return templates.TemplateResponse("admin_ql_instances.html", {"request": request, "active_page": "ql_instances"})
 
 
+@app.get("/admin/ip-pool", response_class=HTMLResponse)
+async def admin_ip_pool_page(request: Request):
+    """系统 IP 池管理页面（管理员）"""
+    return templates.TemplateResponse("admin_ip_pool.html", {"request": request, "active_page": "ip_pool"})
+
+
 @app.get("/admin/referrals", response_class=HTMLResponse)
 async def admin_referrals_page(request: Request):
     """推广关系管理页面（管理员）"""

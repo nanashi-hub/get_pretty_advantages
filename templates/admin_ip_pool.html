@@ -1,0 +1,657 @@
+{% extends "base.html" %}
+
+{% block title %}IP池管理 - 快手账号管理平台{% endblock %}
+
+{% block page_title %}IP池管理{% endblock %}
+
+{% block content %}
+<div class="page-actions">
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="搜索 IP/供应商/地区..." onkeyup="IPPoolAdmin.applySearch(event)">
+        <button class="btn btn-secondary" onclick="IPPoolAdmin.applySearch()">搜索</button>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap: wrap; align-items: center;">
+        <button class="btn btn-secondary" onclick="IPPoolAdmin.reload()">
+            刷新
+        </button>
+        <button class="btn btn-secondary" onclick="IPPoolAdmin.recalcUsage()">
+            重算使用数
+        </button>
+        <button class="btn btn-primary" onclick="IPPoolAdmin.openAddModal()">
+            新增IP
+        </button>
+        <button class="btn btn-primary" onclick="IPPoolAdmin.openImportModal()">
+            批量导入
+        </button>
+        <span style="margin-left: 10px; color: var(--text-muted);">已选 <strong id="selectedCount">0</strong></span>
+        <button class="btn btn-secondary" onclick="IPPoolAdmin.bulkExtend(30)">续期30天</button>
+        <button class="btn btn-secondary" onclick="IPPoolAdmin.bulkExtend(60)">续期60天</button>
+        <button class="btn btn-secondary" onclick="IPPoolAdmin.bulkExtend(90)">续期90天</button>
+        <button class="btn btn-secondary" onclick="IPPoolAdmin.bulkSetStatus('active')">批量启用</button>
+        <button class="btn btn-secondary" onclick="IPPoolAdmin.bulkSetStatus('disabled')">批量禁用</button>
+        <button class="btn btn-secondary" onclick="IPPoolAdmin.bulkDelete()">批量删除</button>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <div class="filter-group">
+        <label>状态:</label>
+        <select id="statusFilter" onchange="IPPoolAdmin.applyFilters()">
+            <option value="">全部</option>
+            <option value="active">启用</option>
+            <option value="disabled">禁用</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>过期:</label>
+        <select id="expiredFilter" onchange="IPPoolAdmin.applyFilters()">
+            <option value="">全部</option>
+            <option value="0">未过期</option>
+            <option value="1">已过期</option>
+        </select>
+    </div>
+    <div class="filter-stats">
+        <span>总数 <strong id="statTotal">0</strong></span>
+        <span>启用 <strong id="statActive">0</strong></span>
+        <span>过期 <strong id="statExpired">0</strong></span>
+        <span>可用 <strong id="statAvailable">0</strong></span>
+        <span>剩余槽位 <strong id="statFreeSlots">0</strong></span>
+    </div>
+</div>
+
+<div class="data-card">
+    <div class="table-responsive">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th width="40">
+                        <input type="checkbox" id="selectAllCheckbox" onchange="IPPoolAdmin.toggleSelectAll(this.checked)">
+                    </th>
+                    <th width="60">ID</th>
+                    <th width="160">IP</th>
+                    <th>代理URL</th>
+                    <th width="120">供应商</th>
+                    <th width="120">地区</th>
+                    <th width="110">到期</th>
+                    <th width="80">状态</th>
+                    <th width="90">容量</th>
+                    <th width="90">占用</th>
+                    <th width="90">剩余</th>
+                    <th width="110">更新时间</th>
+                    <th width="160">操作</th>
+                </tr>
+            </thead>
+            <tbody id="ipTableBody">
+                <tr><td colspan="13" class="loading-cell">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 新增/编辑 IP 模态框 -->
+<div class="modal-overlay" id="ipModal" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="ipModalTitle">新增IP</h3>
+            <button class="modal-close" onclick="IPPoolAdmin.closeIpModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="ipForm">
+                <input type="hidden" id="ipId">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>IP <span class="required">*</span></label>
+                        <input type="text" id="ipValue" placeholder="例如：223.247.128.79" required>
+                    </div>
+                    <div class="form-group">
+                        <label>端口 <span class="required">*</span></label>
+                        <input type="number" id="ipPort" min="1" max="65535" placeholder="例如：1870" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>账号</label>
+                        <input type="text" id="ipUsername" placeholder="可选">
+                    </div>
+                    <div class="form-group">
+                        <label>密码</label>
+                        <input type="text" id="ipPassword" placeholder="可选">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>代理URL（可选，优先使用）</label>
+                    <input type="text" id="ipProxyUrl" placeholder="例如：http://user:pass@ip:port 或 socks5://user:pass@ip:port">
+                    <span class="input-hint">留空则使用 账号/密码/IP/端口 拼接（不含 scheme）</span>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>供应商</label>
+                        <input type="text" id="ipVendor" placeholder="可选">
+                    </div>
+                    <div class="form-group">
+                        <label>地区</label>
+                        <input type="text" id="ipRegion" placeholder="可选">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>到期时间</label>
+                        <input type="date" id="ipExpireDate">
+                    </div>
+                    <div class="form-group">
+                        <label>最大使用人数</label>
+                        <input type="number" id="ipMaxUsers" min="1" max="20" placeholder="默认 2">
+                    </div>
+                    <div class="form-group">
+                        <label>状态</label>
+                        <select id="ipStatus">
+                            <option value="active">启用</option>
+                            <option value="disabled">禁用</option>
+                        </select>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="IPPoolAdmin.closeIpModal()">取消</button>
+            <button class="btn btn-primary" onclick="IPPoolAdmin.saveIp()">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 批量导入模态框 -->
+<div class="modal-overlay" id="importModal" style="display:none;">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>批量导入IP</h3>
+            <button class="modal-close" onclick="IPPoolAdmin.closeImportModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>导入内容 <span class="required">*</span></label>
+                <textarea id="importText" rows="10" placeholder="每行一条：&#10;1) ip:port&#10;2) ip:port:username:password&#10;3) scheme://username:password@ip:port&#10;可追加：到期(YYYY-MM-DD) 供应商 地区 最大人数&#10;示例：223.247.128.79:1870:u:p 2026-02-10 vendorA 安徽 2" required></textarea>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>默认到期</label>
+                    <input type="date" id="importDefaultExpireDate">
+                    <span class="input-hint">留空则不覆盖已存在记录的到期</span>
+                </div>
+                <div class="form-group">
+                    <label>默认供应商</label>
+                    <input type="text" id="importDefaultVendor" placeholder="可选">
+                </div>
+                <div class="form-group">
+                    <label>默认地区</label>
+                    <input type="text" id="importDefaultRegion" placeholder="可选">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>默认最大人数</label>
+                    <input type="number" id="importDefaultMaxUsers" min="1" max="20" placeholder="留空则不覆盖">
+                </div>
+                <div class="form-group">
+                    <label>默认状态</label>
+                    <select id="importDefaultStatus">
+                        <option value="">不覆盖</option>
+                        <option value="active">启用</option>
+                        <option value="disabled">禁用</option>
+                    </select>
+                </div>
+                <div class="form-group" style="display:flex; align-items:center; gap:10px;">
+                    <input type="checkbox" id="importOverwrite" checked>
+                    <label for="importOverwrite" style="margin:0;">已存在(ip+port)时覆盖更新</label>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="IPPoolAdmin.closeImportModal()">取消</button>
+            <button class="btn btn-primary" onclick="IPPoolAdmin.importIps()">导入</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.filter-group select {
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    margin-right: 8px;
+}
+.filter-stats {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+.ip-code {
+    display: inline-block;
+    max-width: 520px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+}
+.badge-expired {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecdd3;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    margin-left: 6px;
+}
+.badge-available {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    margin-left: 6px;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const IPPoolAdmin = (() => {
+    let ipList = [];
+    let filtered = [];
+    let selectedIds = new Set();
+
+    function escapeHtml(text) {
+        const str = String(text == null ? '' : text);
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/\"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function safeText(value) {
+        return escapeHtml(value == null ? '' : String(value));
+    }
+
+    function toDateInputValue(dateStr) {
+        if (!dateStr) return '';
+        // 期望后端返回 YYYY-MM-DD
+        if (/^\\d{4}-\\d{2}-\\d{2}$/.test(dateStr)) return dateStr;
+        try {
+            const d = new Date(dateStr);
+            if (Number.isNaN(d.getTime())) return '';
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        } catch {
+            return '';
+        }
+    }
+
+    function updateSummary(summary) {
+        const s = summary || {};
+        document.getElementById('statTotal').textContent = s.total ?? 0;
+        document.getElementById('statActive').textContent = s.active ?? 0;
+        document.getElementById('statExpired').textContent = s.expired ?? 0;
+        document.getElementById('statAvailable').textContent = s.available ?? 0;
+        document.getElementById('statFreeSlots').textContent = s.free_slots_total ?? 0;
+    }
+
+    function updateSelectedCount() {
+        const el = document.getElementById('selectedCount');
+        if (el) el.textContent = String(selectedIds.size);
+    }
+
+    function getVisibleIds() {
+        return (filtered || []).map(x => x.id);
+    }
+
+    function updateSelectAllState() {
+        const el = document.getElementById('selectAllCheckbox');
+        if (!el) return;
+        const visibleIds = getVisibleIds();
+        if (!visibleIds.length) {
+            el.checked = false;
+            el.indeterminate = false;
+            return;
+        }
+        const allSelected = visibleIds.every(id => selectedIds.has(id));
+        const anySelected = visibleIds.some(id => selectedIds.has(id));
+        el.checked = allSelected;
+        el.indeterminate = !allSelected && anySelected;
+    }
+
+    function getSelectedIdsOrNull() {
+        const ids = Array.from(selectedIds);
+        if (!ids.length) {
+            showToast('请先勾选要操作的IP', 'error');
+            return null;
+        }
+        return ids;
+    }
+
+    function renderTable(rows) {
+        const tbody = document.getElementById('ipTableBody');
+        if (!rows || rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="13" class="empty-cell">暂无数据</td></tr>';
+            updateSelectAllState();
+            return;
+        }
+
+        tbody.innerHTML = rows.map(ip => {
+            const statusLabel = ip.status === 'active' ? '启用' : '禁用';
+            const statusClass = ip.status === 'active' ? 'status-normal' : 'status-disabled';
+            const expire = ip.expire_date ? safeText(ip.expire_date) : '-';
+            const expiredBadge = ip.is_expired ? '<span class="badge-expired">已过期</span>' : '';
+            const availableBadge = (!ip.is_expired && ip.status === 'active' && (ip.free_slots || 0) > 0)
+                ? '<span class="badge-available">可用</span>'
+                : '';
+            const updatedAt = ip.updated_at ? new Date(ip.updated_at).toLocaleDateString('zh-CN') : '-';
+            const isChecked = selectedIds.has(ip.id) ? 'checked' : '';
+
+            return `
+                <tr>
+                    <td>
+                        <input type="checkbox" onchange="IPPoolAdmin.toggleSelect(${ip.id}, this.checked)" ${isChecked}>
+                    </td>
+                    <td>${ip.id}</td>
+                    <td><code>${safeText(ip.ip)}:${safeText(ip.port)}</code></td>
+                    <td><code class="ip-code" title="${safeText(ip.proxy_url || '')}">${safeText(ip.proxy_url || '') || '-'}</code></td>
+                    <td>${safeText(ip.vendor || '-')}</td>
+                    <td>${safeText(ip.region || '-')}</td>
+                    <td>${expire}${expiredBadge}${availableBadge}</td>
+                    <td><span class="status-badge ${statusClass}">${statusLabel}</span></td>
+                    <td>${safeText(ip.max_users || 2)}</td>
+                    <td>${safeText(ip.used || 0)}</td>
+                    <td>${safeText(ip.free_slots || 0)}</td>
+                    <td>${updatedAt}</td>
+                    <td class="action-cell">
+                        <button class="btn-icon" onclick="IPPoolAdmin.openEditModal(${ip.id})" title="编辑/续期">编</button>
+                        <button class="btn-icon" onclick="IPPoolAdmin.toggleStatus(${ip.id})" title="${ip.status === 'active' ? '禁用' : '启用'}">${ip.status === 'active' ? '禁' : '启'}</button>
+                        <button class="btn-icon danger" onclick="IPPoolAdmin.deleteIp(${ip.id})" title="删除">删</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+        updateSelectAllState();
+    }
+
+    function applyFilters() {
+        const statusValue = document.getElementById('statusFilter').value;
+        const expiredValue = document.getElementById('expiredFilter').value;
+        const keyword = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+
+        filtered = (ipList || []).filter(ip => {
+            if (statusValue && ip.status !== statusValue) return false;
+            if (expiredValue === '1' && !ip.is_expired) return false;
+            if (expiredValue === '0' && ip.is_expired) return false;
+            if (keyword) {
+                const hay = `${ip.ip || ''}:${ip.port || ''} ${ip.vendor || ''} ${ip.region || ''} ${ip.proxy_url || ''}`.toLowerCase();
+                if (!hay.includes(keyword)) return false;
+            }
+            return true;
+        });
+        renderTable(filtered);
+    }
+
+    async function reload() {
+        const tbody = document.getElementById('ipTableBody');
+        tbody.innerHTML = '<tr><td colspan="13" class="loading-cell">加载中...</td></tr>';
+        try {
+            const res = await apiRequest('/config-envs/ip-pool/admin/list');
+            ipList = Array.isArray(res?.data) ? res.data : [];
+            const existing = new Set(ipList.map(x => x.id));
+            selectedIds = new Set(Array.from(selectedIds).filter(id => existing.has(id)));
+            updateSelectedCount();
+            updateSummary(res?.summary);
+            applyFilters();
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="13" class="error-cell">加载失败: ${safeText(e.message)}</td></tr>`;
+        }
+    }
+
+    function toggleSelect(id, checked) {
+        if (checked) {
+            selectedIds.add(id);
+        } else {
+            selectedIds.delete(id);
+        }
+        updateSelectedCount();
+        updateSelectAllState();
+    }
+
+    function toggleSelectAll(checked) {
+        const visibleIds = getVisibleIds();
+        if (checked) {
+            visibleIds.forEach(id => selectedIds.add(id));
+        } else {
+            visibleIds.forEach(id => selectedIds.delete(id));
+        }
+        updateSelectedCount();
+        renderTable(filtered);
+    }
+
+    function openAddModal() {
+        document.getElementById('ipModalTitle').textContent = '新增IP';
+        document.getElementById('ipForm').reset();
+        document.getElementById('ipId').value = '';
+        document.getElementById('ipStatus').value = 'active';
+        document.getElementById('ipModal').style.display = 'flex';
+    }
+
+    function openEditModal(id) {
+        const ip = (ipList || []).find(x => x.id === id);
+        if (!ip) return;
+        document.getElementById('ipModalTitle').textContent = `编辑IP #${id}`;
+        document.getElementById('ipForm').reset();
+        document.getElementById('ipId').value = String(ip.id);
+        document.getElementById('ipValue').value = ip.ip || '';
+        document.getElementById('ipPort').value = ip.port || '';
+        document.getElementById('ipProxyUrl').value = ip.proxy_url_raw || '';
+        document.getElementById('ipVendor').value = ip.vendor || '';
+        document.getElementById('ipRegion').value = ip.region || '';
+        document.getElementById('ipExpireDate').value = toDateInputValue(ip.expire_date);
+        document.getElementById('ipMaxUsers').value = ip.max_users || '';
+        document.getElementById('ipStatus').value = ip.status || 'active';
+        document.getElementById('ipModal').style.display = 'flex';
+    }
+
+    function closeIpModal() {
+        document.getElementById('ipModal').style.display = 'none';
+    }
+
+    async function saveIp() {
+        const id = document.getElementById('ipId').value;
+        const data = {
+            ip: document.getElementById('ipValue').value,
+            port: parseInt(document.getElementById('ipPort').value, 10),
+            username: document.getElementById('ipUsername').value || null,
+            password: document.getElementById('ipPassword').value || null,
+            proxy_url: document.getElementById('ipProxyUrl').value || null,
+            vendor: document.getElementById('ipVendor').value || null,
+            region: document.getElementById('ipRegion').value || null,
+            expire_date: document.getElementById('ipExpireDate').value || null,
+            max_users: document.getElementById('ipMaxUsers').value ? parseInt(document.getElementById('ipMaxUsers').value, 10) : null,
+            status: document.getElementById('ipStatus').value
+        };
+
+        try {
+            if (id) {
+                await apiRequest(`/config-envs/ip-pool/admin/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+                showToast('更新成功', 'success');
+            } else {
+                await apiRequest('/config-envs/ip-pool/admin', { method: 'POST', body: JSON.stringify(data) });
+                showToast('新增成功', 'success');
+            }
+            closeIpModal();
+            await reload();
+        } catch (e) {
+            showToast('操作失败: ' + e.message, 'error');
+        }
+    }
+
+    async function toggleStatus(id) {
+        const ip = (ipList || []).find(x => x.id === id);
+        if (!ip) return;
+        const target = ip.status === 'active' ? 'disabled' : 'active';
+        if (!confirm(`确定要将该IP设置为「${target === 'active' ? '启用' : '禁用'}」吗？`)) return;
+        try {
+            await apiRequest(`/config-envs/ip-pool/admin/${id}`, { method: 'PUT', body: JSON.stringify({ status: target }) });
+            showToast('状态已更新', 'success');
+            await reload();
+        } catch (e) {
+            showToast('更新失败: ' + e.message, 'error');
+        }
+    }
+
+    async function deleteIp(id) {
+        if (!confirm('确定要删除这个IP吗？（仅允许无账号引用时删除）')) return;
+        try {
+            await apiRequest(`/config-envs/ip-pool/admin/${id}`, { method: 'DELETE' });
+            showToast('删除成功', 'success');
+            await reload();
+        } catch (e) {
+            showToast('删除失败: ' + e.message, 'error');
+        }
+    }
+
+    async function recalcUsage() {
+        if (!confirm('将按当前账号状态重算并写入 usage_count，是否继续？')) return;
+        try {
+            await apiRequest('/config-envs/ip-pool/admin/recalc-usage', { method: 'POST', body: '{}' });
+            showToast('重算完成', 'success');
+            await reload();
+        } catch (e) {
+            showToast('重算失败: ' + e.message, 'error');
+        }
+    }
+
+    async function bulkExtend(days) {
+        const ids = getSelectedIdsOrNull();
+        if (!ids) return;
+        if (!confirm(`确定要对已选 ${ids.length} 个IP批量续期 ${days} 天吗？`)) return;
+        try {
+            const res = await apiRequest('/config-envs/ip-pool/admin/bulk/extend', {
+                method: 'POST',
+                body: JSON.stringify({ ids, days })
+            });
+            showToast(`续期完成：更新 ${res.updated} 条`, 'success');
+            await reload();
+        } catch (e) {
+            showToast('续期失败: ' + e.message, 'error');
+        }
+    }
+
+    async function bulkSetStatus(status) {
+        const ids = getSelectedIdsOrNull();
+        if (!ids) return;
+        const label = status === 'active' ? '启用' : '禁用';
+        if (!confirm(`确定要对已选 ${ids.length} 个IP批量「${label}」吗？`)) return;
+        try {
+            const res = await apiRequest('/config-envs/ip-pool/admin/bulk/status', {
+                method: 'POST',
+                body: JSON.stringify({ ids, status })
+            });
+            showToast(`批量${label}完成：更新 ${res.updated} 条`, 'success');
+            await reload();
+        } catch (e) {
+            showToast(`批量${label}失败: ` + e.message, 'error');
+        }
+    }
+
+    async function bulkDelete() {
+        const ids = getSelectedIdsOrNull();
+        if (!ids) return;
+        if (!confirm(`⚠️ 确定要批量删除已选 ${ids.length} 个IP吗？\n仅允许无账号引用的记录删除；有引用的会被跳过。`)) return;
+        try {
+            const res = await apiRequest('/config-envs/ip-pool/admin/bulk/delete', {
+                method: 'POST',
+                body: JSON.stringify({ ids })
+            });
+            const msg = `删除完成：成功 ${res.deleted}，跳过(有引用) ${res.blocked}`;
+            showToast(msg, res.blocked ? 'error' : 'success', 6000);
+            if (res.blocked && Array.isArray(res.blocked_by_refs) && res.blocked_by_refs.length) {
+                console.warn('删除被阻止明细：', res.blocked_by_refs);
+            }
+            await reload();
+        } catch (e) {
+            showToast('批量删除失败: ' + e.message, 'error');
+        }
+    }
+
+    function openImportModal() {
+        document.getElementById('importText').value = '';
+        document.getElementById('importDefaultExpireDate').value = '';
+        document.getElementById('importDefaultVendor').value = '';
+        document.getElementById('importDefaultRegion').value = '';
+        document.getElementById('importDefaultMaxUsers').value = '';
+        document.getElementById('importDefaultStatus').value = '';
+        document.getElementById('importOverwrite').checked = true;
+        document.getElementById('importModal').style.display = 'flex';
+    }
+
+    function closeImportModal() {
+        document.getElementById('importModal').style.display = 'none';
+    }
+
+    async function importIps() {
+        const payload = {
+            text: document.getElementById('importText').value || '',
+            default_expire_date: document.getElementById('importDefaultExpireDate').value || null,
+            default_vendor: document.getElementById('importDefaultVendor').value || null,
+            default_region: document.getElementById('importDefaultRegion').value || null,
+            default_max_users: document.getElementById('importDefaultMaxUsers').value ? parseInt(document.getElementById('importDefaultMaxUsers').value, 10) : null,
+            default_status: document.getElementById('importDefaultStatus').value || null,
+            overwrite: !!document.getElementById('importOverwrite').checked
+        };
+
+        try {
+            const res = await apiRequest('/config-envs/ip-pool/admin/import', { method: 'POST', body: JSON.stringify(payload) });
+            const msg = `导入完成：新增 ${res.created}，更新 ${res.updated}，跳过 ${res.skipped}，失败 ${res.failed}`;
+            showToast(msg, res.failed ? 'error' : 'success', 6000);
+            if (res.failed && Array.isArray(res.errors) && res.errors.length) {
+                console.warn('导入失败明细：', res.errors);
+            }
+            closeImportModal();
+            await reload();
+        } catch (e) {
+            showToast('导入失败: ' + e.message, 'error');
+        }
+    }
+
+    function applySearch(evt) {
+        if (evt && evt.key && evt.key !== 'Enter') return;
+        applyFilters();
+    }
+
+    return {
+        reload,
+        openAddModal,
+        openEditModal,
+        closeIpModal,
+        saveIp,
+        toggleSelect,
+        toggleSelectAll,
+        bulkExtend,
+        bulkSetStatus,
+        bulkDelete,
+        toggleStatus,
+        deleteIp,
+        openImportModal,
+        closeImportModal,
+        importIps,
+        recalcUsage,
+        applyFilters,
+        applySearch,
+    };
+})();
+
+document.addEventListener('DOMContentLoaded', () => {
+    IPPoolAdmin.reload();
+});
+</script>
+{% endblock %}

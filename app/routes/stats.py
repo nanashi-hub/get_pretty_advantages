@@ -15,9 +15,11 @@ from app.models import (
     UserRole,
     UserReferral,
     UserScriptEnv,
+    EnvStatus,
 )
 from app.schemas import DashboardAccountStatusItem, DashboardAccountStatusResponse, DashboardStats
 from app.auth import get_current_user
+from app.services.account_health import classify_account_health, pick_account_health_basis
 
 router = APIRouter(prefix="/api", tags=["统计"])
 
@@ -130,17 +132,7 @@ async def get_account_health_stats(
     current_user: User = Depends(get_current_user),
 ):
     """仪表板：自己 + 下级账号状态（今日已统计则用今日，否则用昨日）"""
-    today = date.today()
-    has_today = (
-        db.query(EarningRecord.stat_date)
-        .filter(EarningRecord.stat_date == today)
-        .limit(1)
-        .first()
-        is not None
-    )
-    stat_date = today if has_today else (today - timedelta(days=1))
-    basis = "today" if has_today else "yesterday"
-    basis_label = "今日" if has_today else "昨日"
+    stat_date, basis, basis_label = pick_account_health_basis(db)
 
     # 可见用户集合：自己 + +1/+2 下级（按 user_referrals）
     level_map = {int(current_user.id): ("self", "本人")}
@@ -170,6 +162,7 @@ async def get_account_health_stats(
         .join(UserScriptConfig, UserScriptEnv.config_id == UserScriptConfig.id)
         .filter(UserScriptConfig.user_id.in_(user_ids_list))
         .filter(UserScriptEnv.env_name.like("ksck%"))
+        .filter(UserScriptEnv.status == EnvStatus.VALID.value)
         .all()
     )
 
@@ -179,6 +172,7 @@ async def get_account_health_stats(
 
     env_ids = [int(env_id) for (env_id, _env_name, _remark, _owner_user_id) in env_rows]
     coins_map = {}
+    data_env_ids: set[int] = set()
     if env_ids:
         coin_rows = (
             db.query(EarningRecord.env_id, func.sum(EarningRecord.coins_total).label("coins_total"))
@@ -187,17 +181,9 @@ async def get_account_health_stats(
             .all()
         )
         coins_map = {int(env_id): int(total or 0) for (env_id, total) in coin_rows}
+        data_env_ids = {int(env_id) for (env_id, _total) in coin_rows}
 
-    def _category_for(coins: int) -> tuple[str, str]:
-        if coins <= 0:
-            return "need_config", "需更换配置"
-        if coins < 500:
-            return "black", "黑号"
-        if coins < 10000:
-            return "edge", "边缘"
-        return "normal", "正常"
-
-    counts = {"total": 0, "need_config": 0, "black": 0, "edge": 0, "normal": 0}
+    counts = {"total": 0, "no_data": 0, "need_config": 0, "black": 0, "edge": 0, "normal": 0}
     items: list[DashboardAccountStatusItem] = []
 
     for env_id, env_name, remark, owner_user_id in env_rows:
@@ -206,7 +192,8 @@ async def get_account_health_stats(
         owner_info = user_map.get(owner_id) if owner_id is not None else None
 
         coins = coins_map.get(int(env_id), 0)
-        category, category_label = _category_for(int(coins))
+        has_data = int(env_id) in data_env_ids
+        category, category_label = classify_account_health(has_data, int(coins))
 
         items.append(
             DashboardAccountStatusItem(
@@ -225,9 +212,9 @@ async def get_account_health_stats(
         )
 
         counts["total"] += 1
-        counts[category] += 1
+        counts[category] = counts.get(category, 0) + 1
 
-    severity = {"need_config": 0, "black": 1, "edge": 2, "normal": 3}
+    severity = {"no_data": 0, "need_config": 1, "black": 2, "edge": 3, "normal": 4}
     items.sort(key=lambda x: (severity.get(x.category, 99), x.stat_coins, x.env_id))
 
     return DashboardAccountStatusResponse(
